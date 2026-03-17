@@ -1,0 +1,450 @@
+import AppKit
+import SwiftUI
+import WebKit
+import os
+
+class AppDelegate: NSObject, NSApplicationDelegate {
+    private var statusItem: NSStatusItem!
+    private var mainWindow: NSWindow?
+    private var settingsWindow: NSWindow?
+    private var accountManager = AccountManager.shared
+    private var notificationManager = NotificationManager.shared
+    private var titleObservations: [NSKeyValueObservation] = []
+    private var previousTotalUnread = 0
+    private var feedPollTimer: Timer?
+    private var notifiedEmailIds: Set<String> = []
+    private var hasCompletedFirstPoll = false
+    private var lastTitlePollTime: Date = .distantPast
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        setupMenuBarIcon()
+        setupActivationPolicy()
+        notificationManager.requestPermission()
+
+        // Ensure at least one account exists
+        if accountManager.accounts.isEmpty {
+            accountManager.addAccount()
+        }
+
+        observeUnreadCounts()
+        startFeedPolling()
+    }
+
+    // MARK: - Menu Bar
+
+    private func setupMenuBarIcon() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+
+        if let button = statusItem.button {
+            updateMenuBarIcon(unreadCount: 0)
+            button.action = #selector(statusBarButtonClicked(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.target = self
+        }
+    }
+
+    @objc private func statusBarButtonClicked(_ sender: NSStatusBarButton) {
+        let event = NSApp.currentEvent!
+
+        if event.type == .rightMouseUp {
+            showContextMenu()
+        } else {
+            toggleMainWindow()
+        }
+    }
+
+    private func toggleMainWindow() {
+        if let window = mainWindow, window.isVisible {
+            window.orderOut(nil)
+        } else {
+            showMainWindow()
+        }
+    }
+
+    func showMainWindow() {
+        if mainWindow == nil {
+            createMainWindow()
+        }
+
+        guard let window = mainWindow else { return }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func createMainWindow() {
+        let contentView = MainWindowView()
+            .environmentObject(accountManager)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+
+        window.title = "Peekmail"
+        window.contentView = NSHostingView(rootView: contentView)
+        window.center()
+        window.setFrameAutosaveName("PeekmailMainWindow")
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.styleMask.insert(.fullSizeContentView)
+        window.backgroundColor = .white
+        window.toolbar = NSToolbar()
+        window.toolbar?.isVisible = false
+        window.minSize = NSSize(width: 600, height: 400)
+
+        self.mainWindow = window
+    }
+
+    // MARK: - Context Menu
+
+    private func showContextMenu() {
+        let menu = NSMenu()
+
+        // Account list
+        for (index, account) in accountManager.accounts.enumerated() {
+            let title = account.email ?? "Account \(index + 1)"
+            let item = NSMenuItem(title: title, action: #selector(switchAccount(_:)), keyEquivalent: "")
+            item.tag = index
+            item.target = self
+            if index == accountManager.selectedIndex {
+                item.state = .on
+            }
+            menu.addItem(item)
+        }
+
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Add Account", action: #selector(addAccount), keyEquivalent: ""))
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Compose New Email", action: #selector(composeEmail), keyEquivalent: "n"))
+        menu.addItem(NSMenuItem(title: "Reload", action: #selector(reloadPage), keyEquivalent: "r"))
+        menu.addItem(.separator())
+
+        let showInDockItem = NSMenuItem(title: "Show in Dock", action: #selector(toggleShowInDock(_:)), keyEquivalent: "")
+        showInDockItem.target = self
+        showInDockItem.state = UserDefaults.standard.bool(forKey: "showInDock") ? .on : .off
+        menu.addItem(showInDockItem)
+
+        let audioItem = NSMenuItem(title: "Sound on New Mail", action: #selector(toggleAudioAlert(_:)), keyEquivalent: "")
+        audioItem.target = self
+        audioItem.state = UserDefaults.standard.bool(forKey: "audioAlerts") ? .on : .off
+        menu.addItem(audioItem)
+
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ","))
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Quit Peekmail", action: #selector(quitApp), keyEquivalent: "q"))
+
+        statusItem.menu = menu
+        statusItem.button?.performClick(nil)
+        statusItem.menu = nil // Reset so left-click works again
+    }
+
+    // MARK: - Menu Actions
+
+    @objc private func switchAccount(_ sender: NSMenuItem) {
+        accountManager.selectedIndex = sender.tag
+        if mainWindow == nil || !mainWindow!.isVisible {
+            showMainWindow()
+        }
+    }
+
+    @objc private func addAccount() {
+        accountManager.addAccount()
+        accountManager.selectedIndex = accountManager.accounts.count - 1
+        showMainWindow()
+        observeUnreadCounts()
+    }
+
+    @objc private func composeEmail() {
+        showMainWindow()
+        accountManager.currentWebView?.load(URLRequest(url: URL(string: "https://mail.google.com/mail/u/0/#compose")!))
+    }
+
+    @objc private func reloadPage() {
+        accountManager.currentWebView?.reload()
+    }
+
+    @objc private func toggleShowInDock(_ sender: NSMenuItem) {
+        let current = UserDefaults.standard.bool(forKey: "showInDock")
+        UserDefaults.standard.set(!current, forKey: "showInDock")
+        setupActivationPolicy()
+    }
+
+    @objc private func toggleAudioAlert(_ sender: NSMenuItem) {
+        let current = UserDefaults.standard.bool(forKey: "audioAlerts")
+        UserDefaults.standard.set(!current, forKey: "audioAlerts")
+    }
+
+    @objc private func openPreferences() {
+        if settingsWindow == nil {
+            let settingsView = SettingsView()
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 400, height: 250),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Peekmail Preferences"
+            window.contentView = NSHostingView(rootView: settingsView)
+            window.center()
+            window.isReleasedWhenClosed = false
+            self.settingsWindow = window
+        }
+
+        settingsWindow?.makeKeyAndOrderFront(nil)
+        settingsWindow?.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func quitApp() {
+        NSApp.terminate(nil)
+    }
+
+    // MARK: - Activation Policy
+
+    private func setupActivationPolicy() {
+        let showInDock = UserDefaults.standard.bool(forKey: "showInDock")
+        NSApp.setActivationPolicy(showInDock ? .regular : .accessory)
+    }
+
+    // MARK: - Unread Count
+
+    func updateMenuBarIcon(unreadCount: Int) {
+        guard let button = statusItem.button else { return }
+
+        if unreadCount > 0 {
+            let image = NSImage(systemSymbolName: "envelope.fill", accessibilityDescription: "New mail")!
+            let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+            button.image = image.withSymbolConfiguration(config)
+            button.image?.isTemplate = false
+            // Tint the icon
+            button.contentTintColor = .systemRed
+            button.title = " \(unreadCount)"
+        } else {
+            let image = NSImage(systemSymbolName: "envelope", accessibilityDescription: "Mail")!
+            let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+            button.image = image.withSymbolConfiguration(config)
+            button.image?.isTemplate = true
+            button.contentTintColor = nil
+            button.title = ""
+        }
+    }
+
+    // MARK: - Title Observer (for extracting email address)
+
+    func observeUnreadCounts() {
+        titleObservations.removeAll()
+
+        for account in accountManager.accounts {
+            let observation = account.webView.observe(\.title, options: [.new]) { [weak self] _, _ in
+                DispatchQueue.main.async {
+                    self?.handleTitleChange()
+                }
+            }
+            titleObservations.append(observation)
+        }
+    }
+
+    private func handleTitleChange() {
+        for account in accountManager.accounts {
+            let title = account.webView.title ?? ""
+            if account.email == nil, let email = parseEmail(from: title) {
+                account.email = email
+                accountManager.saveAccounts()
+            }
+        }
+
+    }
+
+    private func parseEmail(from title: String) -> String? {
+        let pattern = #"[\w.+-]+@[\w-]+\.[\w.]+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)),
+              let range = Range(match.range, in: title) else {
+            return nil
+        }
+        return String(title[range])
+    }
+
+    // MARK: - Atom Feed Polling (for unread count)
+
+    private func startFeedPolling() {
+        // Poll immediately, then every 15 seconds
+        pollAllAccounts()
+        feedPollTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+            self?.pollAllAccounts()
+        }
+    }
+
+    private func pollAllAccounts() {
+        for account in accountManager.accounts {
+            pollAtomFeed(for: account)
+        }
+    }
+
+    private func pollAtomFeed(for account: GmailAccount) {
+        let feedURL = URL(string: "https://mail.google.com/mail/feed/atom")!
+
+        account.webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
+            let googleCookies = cookies.filter { $0.domain.contains("google.com") || $0.domain.contains("gmail.com") }
+            if googleCookies.isEmpty { return }
+
+            let cookieHeader = googleCookies
+                .map { "\($0.name)=\($0.value)" }
+                .joined(separator: "; ")
+
+            // Use a session that preserves cookies across redirects
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 15
+            // Inject WKWebView cookies into the session's shared cookie storage
+            for cookie in googleCookies {
+                config.httpCookieStorage?.setCookie(cookie)
+            }
+            let session = URLSession(configuration: config)
+
+            session.dataTask(with: URLRequest(url: feedURL)) { data, response, error in
+                guard let data = data, error == nil else { return }
+
+                let xml = String(data: data, encoding: .utf8) ?? ""
+                let unread = self?.parseFullCount(from: xml) ?? 0
+                let entries = self?.parseEntries(from: xml) ?? []
+
+                DispatchQueue.main.async {
+                    self?.handleFeedResult(for: account, unreadCount: unread, entries: entries)
+                }
+            }.resume()
+        }
+    }
+
+    struct EmailEntry {
+        let id: String
+        let sender: String
+        let subject: String
+        let summary: String
+        let link: String?
+    }
+
+    private func parseFullCount(from xml: String) -> Int {
+        let pattern = #"<fullcount>(\d+)</fullcount>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: xml, range: NSRange(xml.startIndex..., in: xml)),
+              let range = Range(match.range(at: 1), in: xml) else {
+            return 0
+        }
+        return Int(xml[range]) ?? 0
+    }
+
+    private func parseEntries(from xml: String) -> [EmailEntry] {
+        var entries: [EmailEntry] = []
+
+        // Match each <entry>...</entry> block
+        let entryPattern = #"<entry>(.*?)</entry>"#
+        guard let entryRegex = try? NSRegularExpression(pattern: entryPattern, options: .dotMatchesLineSeparators) else {
+            return entries
+        }
+
+        let matches = entryRegex.matches(in: xml, range: NSRange(xml.startIndex..., in: xml))
+
+        for match in matches {
+            guard let entryRange = Range(match.range(at: 1), in: xml) else { continue }
+            let entryXml = String(xml[entryRange])
+
+            let id = extractTag("id", from: entryXml) ?? UUID().uuidString
+            let subject = extractTag("title", from: entryXml) ?? "(no subject)"
+            let summary = extractTag("summary", from: entryXml) ?? ""
+            let sender = extractTag("name", from: entryXml) ?? "Unknown"
+            let link = extractLinkHref(from: entryXml)
+
+            entries.append(EmailEntry(id: id, sender: sender, subject: subject, summary: summary, link: link))
+        }
+
+        return entries
+    }
+
+    private func extractTag(_ tag: String, from xml: String) -> String? {
+        let pattern = "<\(tag)>(.*?)</\(tag)>"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .dotMatchesLineSeparators),
+              let match = regex.firstMatch(in: xml, range: NSRange(xml.startIndex..., in: xml)),
+              let range = Range(match.range(at: 1), in: xml) else {
+            return nil
+        }
+        // Decode basic XML entities
+        return String(xml[range])
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+    }
+
+    private func extractLinkHref(from xml: String) -> String? {
+        let pattern = #"<link[^>]+href="([^"]+)""#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: xml, range: NSRange(xml.startIndex..., in: xml)),
+              let range = Range(match.range(at: 1), in: xml) else {
+            return nil
+        }
+        return String(xml[range])
+            .replacingOccurrences(of: "&amp;", with: "&")
+    }
+
+    private let logger = Logger(subsystem: "com.peekmail.app", category: "feed")
+
+    private func handleFeedResult(for account: GmailAccount, unreadCount: Int, entries: [EmailEntry]) {
+        account.unreadCount = unreadCount
+
+        let totalUnread = accountManager.accounts.reduce(0) { $0 + $1.unreadCount }
+        logger.notice("Feed result: unread=\(unreadCount), entries=\(entries.count), total=\(totalUnread), firstPoll=\(!self.hasCompletedFirstPoll)")
+        updateMenuBarIcon(unreadCount: totalUnread)
+
+        if !hasCompletedFirstPoll {
+            // First poll: seed all current email IDs so we don't spam notifications on launch
+            for entry in entries {
+                notifiedEmailIds.insert(entry.id)
+            }
+            hasCompletedFirstPoll = true
+            previousTotalUnread = totalUnread
+            return
+        }
+
+        // Subsequent polls: notify for any new emails
+        var didNotify = false
+        for entry in entries {
+            if !notifiedEmailIds.contains(entry.id) {
+                notifiedEmailIds.insert(entry.id)
+                notificationManager.sendEmailNotification(
+                    sender: entry.sender,
+                    subject: entry.subject,
+                    snippet: entry.summary,
+                    link: entry.link
+                )
+                didNotify = true
+            }
+        }
+
+        if didNotify && UserDefaults.standard.bool(forKey: "audioAlerts") {
+            let soundName = UserDefaults.standard.string(forKey: "alertSound") ?? "Glass"
+            NSSound(named: NSSound.Name(soundName))?.play()
+        }
+
+        // Keep notified set from growing unbounded
+        if notifiedEmailIds.count > 200 {
+            notifiedEmailIds = Set(notifiedEmailIds.suffix(100))
+        }
+
+        previousTotalUnread = totalUnread
+    }
+}
+
+// MARK: - NSWindowDelegate
+
+extension AppDelegate: NSWindowDelegate {
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        sender.orderOut(nil)
+        return false
+    }
+}
