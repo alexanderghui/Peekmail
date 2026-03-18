@@ -52,5 +52,10 @@ struct GmailWebView: NSViewRepresentable {
 
             decisionHandler(.allow)
         }
+
+        // Disable back-forward cache so Gmail always loads fresh state
+        func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+            decisionHandler(.allow)
+        }
     }
 }

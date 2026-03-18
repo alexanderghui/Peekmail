@@ -4,6 +4,8 @@ import WebKit
 import os
 
 class AppDelegate: NSObject, NSApplicationDelegate {
+    static private(set) var shared: AppDelegate!
+
     private var statusItem: NSStatusItem!
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
@@ -17,6 +19,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastTitlePollTime: Date = .distantPast
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppDelegate.shared = self
         setupMenuBarIcon()
         setupActivationPolicy()
         notificationManager.requestPermission()
@@ -67,8 +70,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         guard let window = mainWindow else { return }
+        let wasVisible = window.isVisible
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+
+        // Reload from origin when showing the window so Gmail reflects latest state
+        if !wasVisible {
+            accountManager.currentWebView?.reloadFromOrigin()
+        }
     }
 
     private func createMainWindow() {
@@ -165,7 +174,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func reloadPage() {
-        accountManager.currentWebView?.reload()
+        guard let webView = accountManager.currentWebView else { return }
+        // Clear all cached data except cookies, then do a fresh navigation
+        let dataTypes: Set<String> = [
+            WKWebsiteDataTypeDiskCache,
+            WKWebsiteDataTypeMemoryCache,
+            WKWebsiteDataTypeFetchCache,
+            WKWebsiteDataTypeServiceWorkerRegistrations
+        ]
+        webView.configuration.websiteDataStore.removeData(ofTypes: dataTypes, modifiedSince: .distantPast) {
+            var request = URLRequest(url: URL(string: "https://mail.google.com")!)
+            request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+            webView.load(request)
+        }
     }
 
     @objc private func toggleShowInDock(_ sender: NSMenuItem) {
@@ -420,7 +441,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     sender: entry.sender,
                     subject: entry.subject,
                     snippet: entry.summary,
-                    link: entry.link
+                    link: entry.link,
+                    accountId: account.id.uuidString
                 )
                 didNotify = true
             }

@@ -18,12 +18,17 @@ class GmailAccount: ObservableObject, Identifiable {
         config.websiteDataStore = dataStore
         config.preferences.isElementFullscreenEnabled = true
 
+        // Allow Gmail's background sync to work without cache interference
+        config.suppressesIncrementalRendering = false
+
         self.webView = WKWebView(frame: .zero, configuration: config)
         self.webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
-        // Load Gmail
+        // Load Gmail with no-cache policy so real-time sync works
         let url = URL(string: "https://mail.google.com")!
-        self.webView.load(URLRequest(url: url))
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        self.webView.load(request)
     }
 }
 
