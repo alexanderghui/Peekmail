@@ -18,10 +18,43 @@ struct GmailWebView: NSViewRepresentable {
     }
 
     class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
-        // Handle new window requests (e.g., target="_blank" links) by loading in the same view
+        private func isGoogleDomain(_ host: String) -> Bool {
+            let googleDomains = [
+                "google.com", "googleapis.com", "gstatic.com", "googleusercontent.com",
+                "google.co", "youtube.com", "google-analytics.com", "googletagmanager.com",
+                "googlesyndication.com", "googleadservices.com", "doubleclick.net",
+                "gmail.com", "google.com.au", "google.co.uk", "google.ca",
+                "recaptcha.net", "goog"
+            ]
+            return googleDomains.contains { host.hasSuffix($0) } || host.contains("google")
+        }
+
+        private func shouldOpenExternally(_ url: URL) -> Bool {
+            let scheme = url.scheme?.lowercased() ?? ""
+            let host = url.host?.lowercased() ?? ""
+
+            // Never open about:blank, data:, or javascript: URLs externally
+            if scheme == "about" || scheme == "data" || scheme == "javascript" || scheme == "blob" {
+                return false
+            }
+
+            // Keep Google domains in the WebView
+            if isGoogleDomain(host) {
+                return false
+            }
+
+            // Everything else opens in default browser
+            return scheme == "http" || scheme == "https" || scheme == "mailto"
+        }
+
+        // Handle new window requests (e.g., target="_blank" links) — open non-Google in browser
         func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-            if navigationAction.targetFrame == nil || !navigationAction.targetFrame!.isMainFrame {
-                webView.load(navigationAction.request)
+            if let url = navigationAction.request.url {
+                if shouldOpenExternally(url) {
+                    NSWorkspace.shared.open(url)
+                } else {
+                    webView.load(navigationAction.request)
+                }
             }
             return nil
         }
@@ -33,28 +66,12 @@ struct GmailWebView: NSViewRepresentable {
                 return
             }
 
-            let host = url.host?.lowercased() ?? ""
-
-            // Allow Google domains
-            if host.hasSuffix("google.com") || host.hasSuffix("googleapis.com") ||
-               host.hasSuffix("gstatic.com") || host.hasSuffix("googleusercontent.com") ||
-               host.hasSuffix("accounts.google.com") || host.hasSuffix("google.co") {
-                decisionHandler(.allow)
-                return
-            }
-
-            // Open non-Google links in default browser
-            if navigationAction.navigationType == .linkActivated {
+            if shouldOpenExternally(url) {
                 NSWorkspace.shared.open(url)
                 decisionHandler(.cancel)
                 return
             }
 
-            decisionHandler(.allow)
-        }
-
-        // Disable back-forward cache so Gmail always loads fresh state
-        func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
             decisionHandler(.allow)
         }
     }

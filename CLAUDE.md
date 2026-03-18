@@ -40,6 +40,7 @@ generate_icon.swift            # Standalone Swift script to regenerate app icons
 - **Manual NSWindow for settings**: SwiftUI `Settings` scene doesn't work with `.accessory` activation policy, so settings uses a manually created NSWindow with NSHostingView.
 - **Window hide vs quit**: Cmd+W / close button hides window (app stays in menu bar). Cmd+Q quits.
 - **Icon generation**: `generate_icon.swift` draws directly to CGContext (not NSImage.lockFocus) to avoid retina scaling issues that caused grey borders.
+- **Custom menu bar icon**: SF Symbols `envelope` had uneven stroke weights (thin bottom edge). Replaced with custom-drawn `drawEnvelopeIcon()` in AppDelegate using NSBezierPath for uniform 1.5pt line weight. Filled version uses red fill with white V flap for unread state.
 
 ### How Feed Polling Works (AppDelegate.swift)
 1. Timer fires every 15 seconds
@@ -63,8 +64,8 @@ generate_icon.swift            # Standalone Swift script to regenerate app icons
 Fixed by: adding `AppDelegate.shared` static ref (SwiftUI `@NSApplicationDelegateAdaptor` breaks `NSApp.delegate as? AppDelegate`), moving `UNUserNotificationCenter.delegate` setup to `NotificationManager.init()`, converting Atom feed `message_id` to Gmail `#inbox/messageId` URL format, and keeping activation policy as `.regular` instead of reverting to `.accessory`.
 
 ### 1b. WKWebView Stale Cache
-**Status**: In progress — not yet resolved.
-Gmail webview doesn't reflect changes made on other devices (e.g. deleting email on phone). Even after clearing disk/memory/fetch cache + service workers and doing fresh navigation with `.reloadIgnoringLocalAndRemoteCacheData`, stale content persists. `reloadFromOrigin()` also doesn't work. Need to investigate further — possibly Gmail's IndexedDB/localStorage holding stale state, or need to clear `WKWebsiteDataTypeOfflineWebApplicationCache` / `WKWebsiteDataTypeIndexedDBDatabases`.
+**Status**: ✅ Resolved — NOT a bug (2026-03-18)
+Gmail's refresh button only checks for new incoming mail — it does NOT sync cross-device changes like deletions. This is Gmail's behavior in ALL browsers (Safari, Chrome), not a WKWebView issue. Verified by testing in Safari: deleting email on iPhone, then clicking Gmail's refresh button in Safari also doesn't remove the deleted email. Only a hard page refresh (Cmd+R / `reloadFromOrigin()`) syncs cross-device changes. Peekmail now supports Cmd+R for hard refresh via main menu, and right-click → Reload. Reverted all cache-clearing hacks — using default `WKWebsiteDataStore` with no JS overrides.
 
 ### 2. Faster Unread Count Update After Reading
 **Status**: Not implemented.

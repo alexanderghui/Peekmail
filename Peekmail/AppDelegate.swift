@@ -31,6 +31,49 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         observeUnreadCounts()
         startFeedPolling()
+        setupMainMenu()
+
+        // Fetch profile images for accounts that already have emails
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+            for account in self?.accountManager.accounts ?? [] {
+                if account.email != nil, account.profileImageData == nil {
+                    self?.fetchProfileImage(for: account)
+                }
+            }
+        }
+    }
+
+    // MARK: - Main Menu (for keyboard shortcuts)
+
+    private func setupMainMenu() {
+        let mainMenu = NSMenu()
+
+        // App menu
+        let appMenu = NSMenu()
+        appMenu.addItem(NSMenuItem(title: "About Peekmail", action: #selector(openPreferences), keyEquivalent: ""))
+        appMenu.addItem(.separator())
+        appMenu.addItem(NSMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ","))
+        appMenu.addItem(.separator())
+        appMenu.addItem(NSMenuItem(title: "Quit Peekmail", action: #selector(quitApp), keyEquivalent: "q"))
+        let appMenuItem = NSMenuItem()
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
+
+        // File menu (for Cmd+W)
+        let fileMenu = NSMenu(title: "File")
+        fileMenu.addItem(NSMenuItem(title: "Close Window", action: #selector(hideWindow), keyEquivalent: "w"))
+        let fileMenuItem = NSMenuItem()
+        fileMenuItem.submenu = fileMenu
+        mainMenu.addItem(fileMenuItem)
+
+        // View menu (for Cmd+R)
+        let viewMenu = NSMenu(title: "View")
+        viewMenu.addItem(NSMenuItem(title: "Reload", action: #selector(reloadPage), keyEquivalent: "r"))
+        let viewMenuItem = NSMenuItem()
+        viewMenuItem.submenu = viewMenu
+        mainMenu.addItem(viewMenuItem)
+
+        NSApp.mainMenu = mainMenu
     }
 
     // MARK: - Menu Bar
@@ -70,14 +113,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         guard let window = mainWindow else { return }
-        let wasVisible = window.isVisible
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-
-        // Reload from origin when showing the window so Gmail reflects latest state
-        if !wasVisible {
-            accountManager.currentWebView?.reloadFromOrigin()
-        }
     }
 
     private func createMainWindow() {
@@ -104,6 +141,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.toolbar = NSToolbar()
         window.toolbar?.isVisible = false
         window.minSize = NSSize(width: 600, height: 400)
+        window.collectionBehavior = [.moveToActiveSpace]
 
         self.mainWindow = window
     }
@@ -168,25 +206,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         observeUnreadCounts()
     }
 
+    @objc private func hideWindow() {
+        mainWindow?.orderOut(nil)
+    }
+
     @objc private func composeEmail() {
         showMainWindow()
         accountManager.currentWebView?.load(URLRequest(url: URL(string: "https://mail.google.com/mail/u/0/#compose")!))
     }
 
-    @objc private func reloadPage() {
-        guard let webView = accountManager.currentWebView else { return }
-        // Clear all cached data except cookies, then do a fresh navigation
-        let dataTypes: Set<String> = [
-            WKWebsiteDataTypeDiskCache,
-            WKWebsiteDataTypeMemoryCache,
-            WKWebsiteDataTypeFetchCache,
-            WKWebsiteDataTypeServiceWorkerRegistrations
-        ]
-        webView.configuration.websiteDataStore.removeData(ofTypes: dataTypes, modifiedSince: .distantPast) {
-            var request = URLRequest(url: URL(string: "https://mail.google.com")!)
-            request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-            webView.load(request)
-        }
+    @objc func reloadPage() {
+        accountManager.currentWebView?.reloadFromOrigin()
     }
 
     @objc private func toggleShowInDock(_ sender: NSMenuItem) {
@@ -221,6 +251,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    func openPreferencesFromSidebar() {
+        openPreferences()
+    }
+
     @objc private func quitApp() {
         NSApp.terminate(nil)
     }
@@ -238,21 +272,77 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem.button else { return }
 
         if unreadCount > 0 {
-            let image = NSImage(systemSymbolName: "envelope.fill", accessibilityDescription: "New mail")!
-            let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-            button.image = image.withSymbolConfiguration(config)
+            button.image = drawEnvelopeIcon(filled: true)
             button.image?.isTemplate = false
-            // Tint the icon
-            button.contentTintColor = .systemRed
+            button.contentTintColor = nil
             button.title = " \(unreadCount)"
+            // Style the title to match menu bar text
+            let font = NSFont.menuBarFont(ofSize: 0)
+            button.attributedTitle = NSAttributedString(
+                string: " \(unreadCount)",
+                attributes: [
+                    .font: font,
+                    .foregroundColor: NSColor.controlTextColor,
+                ]
+            )
         } else {
-            let image = NSImage(systemSymbolName: "envelope", accessibilityDescription: "Mail")!
-            let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-            button.image = image.withSymbolConfiguration(config)
+            button.image = drawEnvelopeIcon(filled: false)
             button.image?.isTemplate = true
             button.contentTintColor = nil
             button.title = ""
+            button.attributedTitle = NSAttributedString(string: "")
         }
+    }
+
+    private func drawEnvelopeIcon(filled: Bool) -> NSImage {
+        let size = NSSize(width: 18, height: 14)
+        let image = NSImage(size: size, flipped: false) { rect in
+            let lineWidth: CGFloat = 1.5
+            let inset = lineWidth / 2
+            let bodyRect = NSRect(x: inset, y: inset, width: rect.width - lineWidth, height: rect.height - lineWidth)
+            let cornerRadius: CGFloat = 1.5
+
+            if filled {
+                // Filled envelope using menu bar label color (adapts to light/dark)
+                let bodyPath = NSBezierPath(roundedRect: bodyRect, xRadius: cornerRadius, yRadius: cornerRadius)
+                NSColor.controlTextColor.setFill()
+                bodyPath.fill()
+
+                // Transparent V flap (cut out from filled body)
+                let flapPath = NSBezierPath()
+                flapPath.move(to: NSPoint(x: inset, y: rect.height - inset))
+                flapPath.line(to: NSPoint(x: rect.width / 2, y: rect.height * 0.38))
+                flapPath.line(to: NSPoint(x: rect.width - inset, y: rect.height - inset))
+                NSColor.clear.setStroke()
+                flapPath.lineWidth = lineWidth
+                flapPath.lineCapStyle = .round
+                flapPath.lineJoinStyle = .round
+                let ctx = NSGraphicsContext.current?.cgContext
+                ctx?.setBlendMode(.clear)
+                flapPath.stroke()
+                ctx?.setBlendMode(.normal)
+            } else {
+                // Outline envelope
+                let bodyPath = NSBezierPath(roundedRect: bodyRect, xRadius: cornerRadius, yRadius: cornerRadius)
+                NSColor.black.setStroke()
+                bodyPath.lineWidth = lineWidth
+                bodyPath.stroke()
+
+                // V flap
+                let flapPath = NSBezierPath()
+                flapPath.move(to: NSPoint(x: inset, y: rect.height - inset))
+                flapPath.line(to: NSPoint(x: rect.width / 2, y: rect.height * 0.38))
+                flapPath.line(to: NSPoint(x: rect.width - inset, y: rect.height - inset))
+                NSColor.black.setStroke()
+                flapPath.lineWidth = lineWidth
+                flapPath.lineCapStyle = .round
+                flapPath.lineJoinStyle = .round
+                flapPath.stroke()
+            }
+            return true
+        }
+        image.isTemplate = !filled
+        return image
     }
 
     // MARK: - Title Observer (for extracting email address)
@@ -276,9 +366,74 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if account.email == nil, let email = parseEmail(from: title) {
                 account.email = email
                 accountManager.saveAccounts()
+                fetchProfileImage(for: account)
             }
         }
+    }
 
+    private func fetchProfileImage(for account: GmailAccount) {
+        // Extract profile image URL from Gmail's page
+        let js = """
+        (function() {
+            var img = document.querySelector('img.gb_l, img.gb_m, a[href*="accounts.google.com"] img, img[data-srcset*="googleusercontent"]');
+            if (img) return img.src || img.getAttribute('data-srcset') || '';
+            return '';
+        })()
+        """
+        account.webView.evaluateJavaScript(js) { [weak self] result, _ in
+            guard let urlString = result as? String, !urlString.isEmpty,
+                  let url = URL(string: urlString) else {
+                // Fallback: try again after a delay (Gmail may not have loaded the avatar yet)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    self?.retryFetchProfileImage(for: account, attempt: 1)
+                }
+                return
+            }
+            self?.downloadProfileImage(from: url, for: account)
+        }
+    }
+
+    private func retryFetchProfileImage(for account: GmailAccount, attempt: Int) {
+        guard attempt < 5, account.profileImageData == nil else { return }
+        let js = """
+        (function() {
+            var imgs = document.querySelectorAll('img');
+            for (var i = 0; i < imgs.length; i++) {
+                var src = imgs[i].src || '';
+                if (src.includes('googleusercontent.com') && (src.includes('photo') || src.includes('/a/'))) {
+                    return src;
+                }
+            }
+            return '';
+        })()
+        """
+        account.webView.evaluateJavaScript(js) { [weak self] result, _ in
+            guard let urlString = result as? String, !urlString.isEmpty,
+                  let url = URL(string: urlString) else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    self?.retryFetchProfileImage(for: account, attempt: attempt + 1)
+                }
+                return
+            }
+            self?.downloadProfileImage(from: url, for: account)
+        }
+    }
+
+    private func downloadProfileImage(from url: URL, for account: GmailAccount) {
+        // Request a larger version of the image
+        let largerURL: URL
+        if url.absoluteString.contains("=s") {
+            largerURL = URL(string: url.absoluteString.replacingOccurrences(of: #"=s\d+"#, with: "=s96", options: .regularExpression)) ?? url
+        } else {
+            largerURL = url
+        }
+
+        URLSession.shared.dataTask(with: largerURL) { data, _, _ in
+            guard let data = data, NSImage(data: data) != nil else { return }
+            DispatchQueue.main.async {
+                account.profileImageData = data
+            }
+        }.resume()
     }
 
     private func parseEmail(from title: String) -> String? {
@@ -296,13 +451,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func startFeedPolling() {
         // Poll immediately, then every 15 seconds
         pollAllAccounts()
-        feedPollTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+        feedPollTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             self?.pollAllAccounts()
         }
     }
 
     private func pollAllAccounts() {
         for account in accountManager.accounts {
+            // Skip accounts that haven't logged in yet (no email detected)
+            guard account.email != nil else { continue }
             pollAtomFeed(for: account)
         }
     }
@@ -318,10 +475,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 .map { "\($0.name)=\($0.value)" }
                 .joined(separator: "; ")
 
-            // Use a session that preserves cookies across redirects
-            let config = URLSessionConfiguration.default
+            // Use an ephemeral session so cookies don't leak between accounts
+            let config = URLSessionConfiguration.ephemeral
             config.timeoutIntervalForRequest = 15
-            // Inject WKWebView cookies into the session's shared cookie storage
+            // Inject only this account's WKWebView cookies
             for cookie in googleCookies {
                 config.httpCookieStorage?.setCookie(cookie)
             }

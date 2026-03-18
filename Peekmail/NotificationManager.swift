@@ -60,7 +60,7 @@ class NotificationManager: NSObject {
 extension NotificationManager: UNUserNotificationCenterDelegate {
     // Show notifications even when app is in foreground
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner])
+        completionHandler([.banner, .list])
     }
 
     // Handle notification click — open the email thread

@@ -7,28 +7,33 @@ class GmailAccount: ObservableObject, Identifiable {
     let webView: WKWebView
     @Published var email: String?
     @Published var unreadCount: Int = 0
+    @Published var profileImageData: Data?
 
-    init(id: UUID = UUID(), email: String? = nil) {
+    init(id: UUID = UUID(), email: String? = nil, isNew: Bool = false) {
         self.id = id
         self.email = email
 
-        // Create a unique data store for each account to isolate cookies/sessions
+        // Each account gets its own isolated data store so cookies/sessions are separate.
+        // This allows multiple Gmail accounts to be logged in simultaneously.
         let config = WKWebViewConfiguration()
         let dataStore = WKWebsiteDataStore(forIdentifier: id)
         config.websiteDataStore = dataStore
-        config.preferences.isElementFullscreenEnabled = true
-
-        // Allow Gmail's background sync to work without cache interference
-        config.suppressesIncrementalRendering = false
 
         self.webView = WKWebView(frame: .zero, configuration: config)
         self.webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
-        // Load Gmail with no-cache policy so real-time sync works
-        let url = URL(string: "https://mail.google.com")!
-        var request = URLRequest(url: url)
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        self.webView.load(request)
+        if isNew || email == nil {
+            // New or not-yet-logged-in account: clear data and show Google sign-in
+            dataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast) { [weak self] in
+                DispatchQueue.main.async {
+                    let signInURL = URL(string: "https://accounts.google.com/ServiceLogin?service=mail&continue=https://mail.google.com/mail/")!
+                    self?.webView.load(URLRequest(url: signInURL))
+                }
+            }
+        } else {
+            // Existing logged-in account: load Gmail directly (session restored from isolated data store)
+            self.webView.load(URLRequest(url: URL(string: "https://mail.google.com")!))
+        }
     }
 }
 
@@ -48,7 +53,7 @@ class AccountManager: ObservableObject {
     }
 
     func addAccount() {
-        let account = GmailAccount()
+        let account = GmailAccount(isNew: true)
         accounts.append(account)
         saveAccounts()
     }
