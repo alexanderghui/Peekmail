@@ -59,8 +59,12 @@ generate_icon.swift            # Standalone Swift script to regenerate app icons
 ## Pending Tasks (in priority order)
 
 ### 1. Notification Click → Open Email Thread
-**Status**: Partially implemented but not confirmed working.
-The Atom feed `<entry>` elements contain `<link>` tags with URLs to the email thread. When a notification is clicked (`didReceive`), we should navigate the WKWebView to that URL. Currently clicking a notification just brings the window to front.
+**Status**: ✅ Complete (2026-03-17)
+Fixed by: adding `AppDelegate.shared` static ref (SwiftUI `@NSApplicationDelegateAdaptor` breaks `NSApp.delegate as? AppDelegate`), moving `UNUserNotificationCenter.delegate` setup to `NotificationManager.init()`, converting Atom feed `message_id` to Gmail `#inbox/messageId` URL format, and keeping activation policy as `.regular` instead of reverting to `.accessory`.
+
+### 1b. WKWebView Stale Cache
+**Status**: In progress — not yet resolved.
+Gmail webview doesn't reflect changes made on other devices (e.g. deleting email on phone). Even after clearing disk/memory/fetch cache + service workers and doing fresh navigation with `.reloadIgnoringLocalAndRemoteCacheData`, stale content persists. `reloadFromOrigin()` also doesn't work. Need to investigate further — possibly Gmail's IndexedDB/localStorage holding stale state, or need to clear `WKWebsiteDataTypeOfflineWebApplicationCache` / `WKWebsiteDataTypeIndexedDBDatabases`.
 
 ### 2. Faster Unread Count Update After Reading
 **Status**: Not implemented.
