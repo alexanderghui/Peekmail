@@ -22,33 +22,15 @@ struct MainWindowView: View {
         }
     }
 
-    // Gmail dark sidebar color: #1a1a1a / rgb(26,26,26) for dark theme
-    // Gmail light sidebar: #f6f8fc — we'll use the dark one to match Gmail's dark mode
-    private let sidebarBg = Color(red: 0.16, green: 0.16, blue: 0.16)
-    private let sidebarIconColor = Color.white.opacity(0.55)
+    // Very light blue-grey sidebar
+    private let sidebarBg = Color(red: 0.933, green: 0.945, blue: 0.965)
+    private let sidebarIconColor = Color(red: 0.3, green: 0.3, blue: 0.35)
 
     private var accountSidebar: some View {
         VStack(spacing: 0) {
-            // Back/Forward navigation — pushed below traffic lights
-            HStack(spacing: 6) {
-                Button(action: goBack) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(sidebarIconColor)
-                        .frame(width: 26, height: 26)
-                }
-                .buttonStyle(.plain)
-
-                Button(action: goForward) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(sidebarIconColor)
-                        .frame(width: 26, height: 26)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.top, 40) // space for traffic light buttons
-            .padding(.bottom, 12)
+            // Spacer for traffic light buttons
+            Spacer()
+                .frame(height: 40)
 
             // Account avatars
             VStack(spacing: 12) {
@@ -69,12 +51,12 @@ struct MainWindowView: View {
                 Button(action: addAccount) {
                     ZStack {
                         Circle()
-                            .fill(Color.white.opacity(0.15))
-                            .frame(width: 38, height: 38)
+                            .stroke(Color(red: 0.7, green: 0.72, blue: 0.76), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                            .frame(width: 44, height: 44)
 
                         Image(systemName: "plus")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(Color.white.opacity(0.7))
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundColor(Color(red: 0.5, green: 0.52, blue: 0.56))
                     }
                 }
                 .buttonStyle(.plain)
@@ -124,14 +106,6 @@ struct MainWindowView: View {
         }
     }
 
-    private func goBack() {
-        accountManager.currentWebView?.goBack()
-    }
-
-    private func goForward() {
-        accountManager.currentWebView?.goForward()
-    }
-
     private func reloadPage() {
         accountManager.currentWebView?.reloadFromOrigin()
     }
@@ -154,7 +128,7 @@ struct AccountAvatarButton: View {
                 if isSelected {
                     Circle()
                         .stroke(Color.blue, lineWidth: 2.5)
-                        .frame(width: 44, height: 44)
+                        .frame(width: 50, height: 50)
                 }
 
                 // Avatar
@@ -162,22 +136,22 @@ struct AccountAvatarButton: View {
                     Image(nsImage: nsImage)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                        .frame(width: 38, height: 38)
+                        .frame(width: 44, height: 44)
                         .clipShape(Circle())
                 } else {
-                    // Fallback: person icon for not-yet-logged-in, initial letter for logged in
+                    // Fallback: Google-style person silhouette for not-yet-logged-in, initial letter for logged in
                     Circle()
-                        .fill(Color.gray.opacity(0.5))
-                        .frame(width: 38, height: 38)
+                        .fill(account.email == nil ? Color(red: 0.72, green: 0.74, blue: 0.78) : Color.gray.opacity(0.5))
+                        .frame(width: 44, height: 44)
                         .overlay(
                             Group {
                                 if account.email == nil {
                                     Image(systemName: "person.fill")
-                                        .font(.system(size: 18, weight: .medium))
-                                        .foregroundColor(.white.opacity(0.7))
+                                        .font(.system(size: 22, weight: .regular))
+                                        .foregroundColor(.white.opacity(0.85))
                                 } else {
                                     Text(accountInitial)
-                                        .font(.system(size: 15, weight: .semibold))
+                                        .font(.system(size: 17, weight: .semibold))
                                         .foregroundColor(.white)
                                 }
                             }
@@ -187,13 +161,13 @@ struct AccountAvatarButton: View {
                 // Unread badge
                 if account.unreadCount > 0 {
                     Text("\(account.unreadCount)")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.system(size: 9, weight: .bold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
                         .background(Color.red)
                         .clipShape(Capsule())
-                        .offset(x: 16, y: -16)
+                        .offset(x: 18, y: -18)
                 }
             }
         }

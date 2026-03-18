@@ -1,5 +1,8 @@
 import SwiftUI
 import ServiceManagement
+import os
+
+private let settingsLogger = Logger(subsystem: "com.peekmail.app", category: "settings")
 
 struct SettingsView: View {
     var body: some View {
@@ -50,7 +53,7 @@ struct GeneralSettingsView: View {
                             try SMAppService.mainApp.unregister()
                         }
                     } catch {
-                        print("Failed to update login item: \(error)")
+                        settingsLogger.error("Failed to update login item: \(error.localizedDescription)")
                     }
                 }
 

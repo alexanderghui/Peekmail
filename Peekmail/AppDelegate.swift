@@ -12,7 +12,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var accountManager = AccountManager.shared
     private var notificationManager = NotificationManager.shared
     private var titleObservations: [NSKeyValueObservation] = []
-    private var previousTotalUnread = 0
     private var feedPollTimer: Timer?
     private var notifiedEmailIds: Set<String> = []
     private var hasCompletedFirstPoll = false
@@ -291,6 +290,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.contentTintColor = nil
             button.title = ""
             button.attributedTitle = NSAttributedString(string: "")
+        }
+
+        // Update dock badge
+        DispatchQueue.main.async {
+            if unreadCount > 0 {
+                NSApp.dockTile.badgeLabel = "\(unreadCount)"
+            } else {
+                NSApp.dockTile.badgeLabel = nil
+            }
+            NSApp.dockTile.display()
         }
     }
 
@@ -585,8 +594,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 notifiedEmailIds.insert(entry.id)
             }
             hasCompletedFirstPoll = true
-            previousTotalUnread = totalUnread
-            return
+                return
         }
 
         // Subsequent polls: notify for any new emails
@@ -615,7 +623,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             notifiedEmailIds = Set(notifiedEmailIds.suffix(100))
         }
 
-        previousTotalUnread = totalUnread
     }
 }
 

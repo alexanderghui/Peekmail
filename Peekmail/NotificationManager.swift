@@ -15,24 +15,9 @@ class NotificationManager: NSObject {
     func requestPermission() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             if let error = error {
-                print("Notification permission error: \(error)")
+                self.logger.error("Notification permission error: \(error.localizedDescription)")
             }
         }
-    }
-
-    func sendNewMailNotification(count: Int) {
-        let content = UNMutableNotificationContent()
-        content.title = "Peekmail"
-        content.body = count == 1 ? "You have a new email" : "You have \(count) new emails"
-        content.sound = nil
-
-        let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
-            content: content,
-            trigger: nil
-        )
-
-        UNUserNotificationCenter.current().add(request)
     }
 
     func sendEmailNotification(sender: String, subject: String, snippet: String, link: String? = nil, accountId: String? = nil) {
