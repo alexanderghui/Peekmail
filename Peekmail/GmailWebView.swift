@@ -1,6 +1,36 @@
 import SwiftUI
 import WebKit
 
+class EditableWKWebView: WKWebView {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.contains(.command) {
+            switch event.charactersIgnoringModifiers {
+            case "c":
+                evaluateJavaScript("document.execCommand('copy')") { _, _ in }
+                return true
+            case "v":
+                if let text = NSPasteboard.general.string(forType: .string) {
+                    let escaped = text.replacingOccurrences(of: "\\", with: "\\\\")
+                        .replacingOccurrences(of: "'", with: "\\'")
+                        .replacingOccurrences(of: "\n", with: "\\n")
+                        .replacingOccurrences(of: "\r", with: "\\r")
+                    evaluateJavaScript("document.execCommand('insertText', false, '\(escaped)')") { _, _ in }
+                }
+                return true
+            case "x":
+                evaluateJavaScript("document.execCommand('cut')") { _, _ in }
+                return true
+            case "a":
+                evaluateJavaScript("document.execCommand('selectAll')") { _, _ in }
+                return true
+            default:
+                break
+            }
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
 struct GmailWebView: NSViewRepresentable {
     let webView: WKWebView
 

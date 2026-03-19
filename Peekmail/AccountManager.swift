@@ -19,7 +19,7 @@ class GmailAccount: ObservableObject, Identifiable {
         let dataStore = WKWebsiteDataStore(forIdentifier: id)
         config.websiteDataStore = dataStore
 
-        self.webView = WKWebView(frame: .zero, configuration: config)
+        self.webView = EditableWKWebView(frame: .zero, configuration: config)
         self.webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
         if isNew || email == nil {
