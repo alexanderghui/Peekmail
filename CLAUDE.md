@@ -27,7 +27,8 @@ Peekmail/
 ├── GmailWebView.swift         # NSViewRepresentable WKWebView wrapper, Google domain allowlist
 ├── MainWindowView.swift       # SwiftUI view with account sidebar + avatar buttons
 ├── NotificationManager.swift  # UNUserNotification delegate, rich notifications, click-to-open
-├── SettingsView.swift         # General + About tabs (dock toggle, sounds, launch at login)
+├── SettingsView.swift         # General + About tabs (dock toggle, sounds, launch at login, check for updates)
+├── UpdateChecker.swift        # Checks GitHub Releases API for newer versions, offers DMG download
 ├── Info.plist                 # LSUIElement=true, min macOS 13.0
 ├── Peekmail.entitlements      # App Sandbox + network.client
 └── Assets.xcassets/           # App icon (dark gradient + white envelope outline)
@@ -117,6 +118,9 @@ Converted `print()` statements to `os.Logger` calls. Removed unused code: `goBac
 
 ### Email CTA Links Open In-App — Fixed (2026-06-11, v1.2)
 Clicking a CTA/link in an email loaded the page inside Peekmail instead of the default browser. Two causes: (1) Gmail wraps email links in `google.com/url?q=<dest>`, which passed the Google domain allowlist; (2) even unwrapped, Google destinations (Docs/Slides) matched the allowlist. Fix in GmailWebView.swift: `unwrapGoogleRedirect()` extracts the real destination, and `decidePolicyFor` now sends ALL new-window requests (`targetFrame == nil`) to the default browser except auth popups (`accounts.google.com`/`mail.google.com`). Added os.Logger navigation logging (subsystem `com.peekmail.app`, category `navigation`; info-level — view with `/usr/bin/log stream --info`, noting `log` is shadowed by a zsh builtin).
+
+### Update Checker (2026-06-11, v1.3)
+`UpdateChecker.swift` queries `https://api.github.com/repos/alexanderghui/Peekmail/releases/latest`, compares `tag_name` (v-prefix stripped) against `CFBundleShortVersionString`, and shows an NSAlert offering the `.dmg` asset download (opens in browser; user drags to /Applications). Checks 10s after launch + every 24h (each version offered only once, tracked via `lastOfferedUpdateVersion` UserDefault); "Check for Updates…" button in Settings → About always reports a result. No Sparkle — doesn't fit sandbox or no-dependencies rule. **Releases must be published as GitHub Releases with the DMG attached** (e.g. `gh release create v1.3 build/Peekmail.dmg`) or the checker has nothing to find.
 
 ## Known Issues
 
