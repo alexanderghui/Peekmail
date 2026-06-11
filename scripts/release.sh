@@ -79,6 +79,11 @@ hdiutil create -volname "Peekmail" \
 rm -rf "$STAGING_DIR"
 echo "✅ DMG created"
 
+# Sign the DMG itself so it passes spctl's disk-image assessment
+echo "🔏 Signing DMG..."
+codesign --sign "Developer ID Application: Alex Hui (43WKQQ4453)" "$DMG_PATH"
+echo "✅ DMG signed"
+
 # Step 5: Notarize
 echo "📤 Submitting for notarization (this may take a few minutes)..."
 xcrun notarytool submit "$DMG_PATH" \
