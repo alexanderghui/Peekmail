@@ -91,6 +91,11 @@ struct AboutView: View {
             Text("A lightweight Gmail client for your menu bar.")
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
+
+            Button("Check for Updates…") {
+                UpdateChecker.shared.checkManually()
+            }
+            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(20)

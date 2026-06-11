@@ -13,6 +13,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var notificationManager = NotificationManager.shared
     private var titleObservations: [NSKeyValueObservation] = []
     private var feedPollTimer: Timer?
+    private var updateCheckTimer: Timer?
     private var notifiedEmailIds: Set<String> = []
     private var hasCompletedFirstPoll = false
     private var lastTitlePollTime: Date = .distantPast
@@ -31,6 +32,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         observeUnreadCounts()
         startFeedPolling()
         setupMainMenu()
+
+        // Check for updates shortly after launch, then daily (the app runs for days)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+            UpdateChecker.shared.checkInBackground()
+        }
+        updateCheckTimer = Timer.scheduledTimer(withTimeInterval: 24 * 60 * 60, repeats: true) { _ in
+            UpdateChecker.shared.checkInBackground()
+        }
 
         // Fetch profile images for accounts that already have emails
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
