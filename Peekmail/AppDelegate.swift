@@ -18,6 +18,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemHealthTimer: Timer?
     private var profileImageRetryWorkItems: [UUID: DispatchWorkItem] = [:]
     private var profileImageDownloads: Set<UUID> = []
+    private var profileLookupWebViews: [UUID: WKWebView] = [:]
+    private var profileLookupTimeouts: [UUID: DispatchWorkItem] = [:]
     private var notifiedEmailIds: Set<String> = []
     private var hasCompletedFirstPoll = false
     private var lastTitlePollTime: Date = .distantPast
@@ -645,9 +647,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if let image,
                let tiffData = image.tiffRepresentation,
                let representation = NSBitmapImageRep(data: tiffData),
-               let pngData = representation.representation(using: .png, properties: [:]) {
+                let pngData = representation.representation(using: .png, properties: [:]) {
                 if self.isLikelyGeneratedInitial(representation) {
-                    self.requestProfileImageFromAccountPanel(for: account, attempt: attempt)
+                    self.requestProfileImageInBackground(for: account, attempt: attempt)
                     return
                 }
                 DispatchQueue.main.async {
@@ -687,30 +689,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return colorCounts.count < 80 && dominantRatio > 0.5
     }
 
-    private func requestProfileImageFromAccountPanel(for account: GmailAccount, attempt: Int) {
-        let js = """
-        (function() {
-            var controls = Array.from(document.querySelectorAll(
-                '[aria-label*="Google Account"], a[href*="SignOutOptions"]'
-            ));
-            var control = controls.find(function(candidate) {
-                return (candidate.getAttribute('aria-label') || '').indexOf('Google Account') !== -1;
-            }) || controls[0];
-            if (control && control.getAttribute('aria-expanded') !== 'true') {
-                control.click();
-                control.blur();
-            }
-        })()
-        """
-        account.webView.evaluateJavaScript(js, completionHandler: nil)
+    private func requestProfileImageInBackground(for account: GmailAccount, attempt: Int) {
+        guard profileLookupWebViews[account.id] == nil else { return }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self, weak account] in
+        let lookupWebView = account.makeProfileImageLookupWebView()
+        profileLookupWebViews[account.id] = lookupWebView
+
+        let timeout = DispatchWorkItem { [weak self, weak account] in
             guard let self, let account,
                   account.profileImageData == nil,
                   !self.profileImageDownloads.contains(account.id) else { return }
-            self.closeAccountPanel(for: account)
+            self.finishProfileImageLookup(for: account)
             self.scheduleProfileImageRetry(for: account, attempt: attempt + 1)
         }
+        profileLookupTimeouts[account.id] = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: timeout)
+
+        let url = URL(string: "https://myaccount.google.com/personal-info?authuser=0")!
+        lookupWebView.load(URLRequest(url: url))
     }
 
     private func handleProfileImageCandidate(accountID: UUID, url: URL) {
@@ -718,6 +714,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
               account.profileImageData == nil,
               !profileImageDownloads.contains(accountID) else { return }
         profileImageDownloads.insert(accountID)
+        finishProfileImageLookup(for: account)
         downloadProfileImage(from: url, for: account)
     }
 
@@ -739,6 +736,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                     DispatchQueue.main.async {
                         self.profileImageDownloads.remove(account.id)
+                        self.finishProfileImageLookup(for: account)
                         self.scheduleProfileImageRetry(for: account, attempt: 1)
                     }
                     return
@@ -754,9 +752,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         useForGoogleControl: true
                     )
                     self.applyProfileImageToGoogleControl(for: account)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                        self.closeAccountPanel(for: account)
-                    }
+                    self.finishProfileImageLookup(for: account)
                 }
             }.resume()
         }
@@ -804,25 +800,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         account.webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
-    private func closeAccountPanel(for account: GmailAccount) {
-        let js = """
-        (function() {
-            var controls = Array.from(document.querySelectorAll(
-                '[aria-label*="Google Account"], a[href*="SignOutOptions"]'
-            ));
-            var expanded = controls.find(function(control) {
-                return control.getAttribute('aria-expanded') === 'true';
-            });
-            if (expanded) {
-                expanded.click();
-                expanded.blur();
-            }
-            if (document.activeElement && document.activeElement.blur) {
-                document.activeElement.blur();
-            }
-        })()
-        """
-        account.webView.evaluateJavaScript(js, completionHandler: nil)
+    private func finishProfileImageLookup(for account: GmailAccount) {
+        profileLookupTimeouts[account.id]?.cancel()
+        profileLookupTimeouts[account.id] = nil
+        profileLookupWebViews[account.id]?.stopLoading()
+        profileLookupWebViews[account.id] = nil
     }
 
     private func scheduleProfileImageRetry(for account: GmailAccount, attempt: Int) {

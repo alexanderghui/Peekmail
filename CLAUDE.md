@@ -158,6 +158,11 @@ The original updater checked the GitHub Releases API and opened the release DMG 
 - Buffers profile-photo messages that arrive before the app delegate is ready and invalidates the v1.8 avatar cache so affected accounts retry automatically.
 - Removes keyboard focus after Peekmail briefly opens or closes Google's account panel, preventing the top-right account pill from remaining highlighted.
 
+### Non-Interactive Workspace Photo Lookup (2026-08-25, v1.10)
+- Removed all programmatic interaction with Gmail's visible Google Account control.
+- Workspace profile recovery now uses an invisible WebView that shares the selected account's isolated website data store, loads Google Account in the background, and is discarded after the photo is received or the lookup times out.
+- Account switching no longer opens, closes, focuses, or highlights the top-right Gmail account pill.
+
 ## Known Issues
 
 ### App Icon Grey Border

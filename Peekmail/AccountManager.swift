@@ -116,6 +116,22 @@ class GmailAccount: ObservableObject, Identifiable {
         }
     }
 
+    func makeProfileImageLookupWebView() -> WKWebView {
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = webView.configuration.websiteDataStore
+        config.userContentController.add(profileImageMessageHandler, name: "profileImageCandidate")
+        webView.configuration.userContentController.userScripts.forEach {
+            config.userContentController.addUserScript($0)
+        }
+
+        let lookupWebView = WKWebView(
+            frame: CGRect(x: 0, y: 0, width: 900, height: 900),
+            configuration: config
+        )
+        lookupWebView.customUserAgent = webView.customUserAgent
+        return lookupWebView
+    }
+
     static func profileImageKey(for id: UUID) -> String {
         "profileImage.\(id.uuidString)"
     }

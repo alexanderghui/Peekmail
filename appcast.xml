@@ -3,13 +3,13 @@
     <channel>
         <title>Peekmail</title>
         <item>
-            <title>1.9</title>
-            <pubDate>Tue, 25 Aug 2026 15:08:37 -0600</pubDate>
-            <link>https://github.com/alexanderghui/Peekmail/releases/tag/v1.9</link>
-            <sparkle:version>10</sparkle:version>
-            <sparkle:shortVersionString>1.9</sparkle:shortVersionString>
+            <title>1.10</title>
+            <pubDate>Tue, 25 Aug 2026 15:13:06 -0600</pubDate>
+            <link>https://github.com/alexanderghui/Peekmail/releases/tag/v1.10</link>
+            <sparkle:version>11</sparkle:version>
+            <sparkle:shortVersionString>1.10</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/alexanderghui/Peekmail/releases/download/v1.9/Peekmail-1.9.dmg" length="1806836" type="application/octet-stream" sparkle:edSignature="XHf6jpJvI94u3xsNrTA3QoeTOVUiHn8FGNMDAHkiQaihMNwWJrhXh4M8bIGOVS6jaczl+NvrVxb0u9vc0c5RCw=="/>
+            <enclosure url="https://github.com/alexanderghui/Peekmail/releases/download/v1.10/Peekmail-1.10.dmg" length="1811131" type="application/octet-stream" sparkle:edSignature="zGsXCR60QMU2DM3xg6n1nk+ivqRN5OytGIrfp3I3cVZzvYHoNq0Xn6/SN2BlE5cfpiXehNkmHZb6H0z23k0hDA=="/>
         </item>
     </channel>
 </rss>
