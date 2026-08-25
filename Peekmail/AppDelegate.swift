@@ -6,17 +6,20 @@ import os
 class AppDelegate: NSObject, NSApplicationDelegate {
     static private(set) var shared: AppDelegate!
 
-    private var statusItem: NSStatusItem!
+    private var statusItem: NSStatusItem?
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private var accountManager = AccountManager.shared
     private var notificationManager = NotificationManager.shared
-    private var titleObservations: [NSKeyValueObservation] = []
+    private var webViewObservations: [NSKeyValueObservation] = []
     private var feedPollTimer: Timer?
     private var updateCheckTimer: Timer?
+    private var statusItemHealthTimer: Timer?
+    private var profileImageRetryWorkItems: [UUID: DispatchWorkItem] = [:]
     private var notifiedEmailIds: Set<String> = []
     private var hasCompletedFirstPoll = false
     private var lastTitlePollTime: Date = .distantPast
+    private var currentUnreadCount = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppDelegate.shared = self
@@ -33,6 +36,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         startFeedPolling()
         setupMainMenu()
 
+        statusItemHealthTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            self?.ensureStatusItem()
+        }
+
         // Check for updates shortly after launch, then daily (the app runs for days)
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
             UpdateChecker.shared.checkInBackground()
@@ -41,14 +48,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             UpdateChecker.shared.checkInBackground()
         }
 
-        // Fetch profile images for accounts that already have emails
+        // Fetch the visible account's profile image after Gmail has rendered.
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-            for account in self?.accountManager.accounts ?? [] {
-                if account.email != nil, account.profileImageData == nil {
-                    self?.fetchProfileImage(for: account)
-                }
+            guard let self,
+                  self.accountManager.selectedIndex < self.accountManager.accounts.count else { return }
+            let account = self.accountManager.accounts[self.accountManager.selectedIndex]
+            if account.email != nil, account.profileImageData == nil {
+                self.fetchProfileImage(for: account)
             }
         }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        ensureStatusItem()
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            showMainWindow()
+        }
+        return true
     }
 
     // MARK: - Main Menu (for keyboard shortcuts)
@@ -100,21 +123,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Menu Bar
 
     private func setupMenuBarIcon() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        ensureStatusItem()
+    }
 
-        if let button = statusItem.button {
-            updateMenuBarIcon(unreadCount: 0)
-            button.action = #selector(statusBarButtonClicked(_:))
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-            button.target = self
+    private func ensureStatusItem() {
+        if statusItem == nil || statusItem?.button == nil {
+            statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+
+            if let button = statusItem?.button {
+                button.action = #selector(statusBarButtonClicked(_:))
+                button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+                button.target = self
+            }
         }
+
+        statusItem?.isVisible = true
+        renderMenuBarIcon(unreadCount: currentUnreadCount)
     }
 
     @objc private func statusBarButtonClicked(_ sender: NSStatusBarButton) {
-        let event = NSApp.currentEvent!
-
-        if event.type == .rightMouseUp {
-            showContextMenu()
+        if NSApp.currentEvent?.type == .rightMouseUp {
+            showContextMenu(relativeTo: sender)
         } else {
             toggleMainWindow()
         }
@@ -136,6 +165,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let window = mainWindow else { return }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+
+        if accountManager.selectedIndex < accountManager.accounts.count {
+            refreshProfileImage(for: accountManager.accounts[accountManager.selectedIndex])
+        }
     }
 
     private func createMainWindow() {
@@ -169,7 +202,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Context Menu
 
-    private func showContextMenu() {
+    private func showContextMenu(relativeTo button: NSStatusBarButton) {
         let menu = NSMenu()
 
         // Account list
@@ -185,10 +218,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Add Account", action: #selector(addAccount), keyEquivalent: ""))
+        let addAccountItem = NSMenuItem(title: "Add Account", action: #selector(addAccount), keyEquivalent: "")
+        addAccountItem.target = self
+        menu.addItem(addAccountItem)
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Compose New Email", action: #selector(composeEmail), keyEquivalent: "n"))
-        menu.addItem(NSMenuItem(title: "Reload", action: #selector(reloadPage), keyEquivalent: "r"))
+        let composeItem = NSMenuItem(title: "Compose New Email", action: #selector(composeEmail), keyEquivalent: "n")
+        composeItem.target = self
+        menu.addItem(composeItem)
+        let reloadItem = NSMenuItem(title: "Reload", action: #selector(reloadPage), keyEquivalent: "r")
+        reloadItem.target = self
+        menu.addItem(reloadItem)
         menu.addItem(.separator())
 
         let showInDockItem = NSMenuItem(title: "Show in Dock", action: #selector(toggleShowInDock(_:)), keyEquivalent: "")
@@ -202,19 +241,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(audioItem)
 
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ","))
+        let preferencesItem = NSMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ",")
+        preferencesItem.target = self
+        menu.addItem(preferencesItem)
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Quit Peekmail", action: #selector(quitApp), keyEquivalent: "q"))
+        let quitItem = NSMenuItem(title: "Quit Peekmail", action: #selector(quitApp), keyEquivalent: "q")
+        quitItem.target = self
+        menu.addItem(quitItem)
 
-        statusItem.menu = menu
-        statusItem.button?.performClick(nil)
-        statusItem.menu = nil // Reset so left-click works again
+        menu.popUp(
+            positioning: nil,
+            at: NSPoint(x: 0, y: button.bounds.height + 2),
+            in: button
+        )
     }
 
     // MARK: - Menu Actions
 
     @objc private func switchAccount(_ sender: NSMenuItem) {
         accountManager.selectedIndex = sender.tag
+        if sender.tag < accountManager.accounts.count {
+            refreshProfileImage(for: accountManager.accounts[sender.tag])
+        }
         if mainWindow == nil || !mainWindow!.isVisible {
             showMainWindow()
         }
@@ -229,6 +277,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func hideWindow() {
         mainWindow?.orderOut(nil)
+        ensureStatusItem()
     }
 
     @objc private func composeEmail() {
@@ -290,7 +339,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Unread Count
 
     func updateMenuBarIcon(unreadCount: Int) {
-        guard let button = statusItem.button else { return }
+        currentUnreadCount = unreadCount
+        ensureStatusItem()
+    }
+
+    private func renderMenuBarIcon(unreadCount: Int) {
+        guard let button = statusItem?.button else { return }
 
         if unreadCount > 0 {
             button.image = drawEnvelopeIcon(filled: true)
@@ -379,15 +433,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Title Observer (for extracting email address)
 
     func observeUnreadCounts() {
-        titleObservations.removeAll()
+        webViewObservations.removeAll()
 
         for account in accountManager.accounts {
-            let observation = account.webView.observe(\.title, options: [.new]) { [weak self] _, _ in
+            let titleObservation = account.webView.observe(\.title, options: [.new]) { [weak self] _, _ in
                 DispatchQueue.main.async {
                     self?.handleTitleChange()
                 }
             }
-            titleObservations.append(observation)
+            webViewObservations.append(titleObservation)
+
+            let loadObservation = account.webView.observe(\.estimatedProgress, options: [.new]) { [weak self, weak account] _, change in
+                guard let account, (change.newValue ?? 0) >= 1 else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    if self?.accountManager.currentWebView === account.webView,
+                       account.email != nil,
+                       account.profileImageData == nil {
+                        self?.fetchProfileImage(for: account)
+                    }
+                }
+            }
+            webViewObservations.append(loadObservation)
         }
     }
 
@@ -402,69 +468,155 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func fetchProfileImage(for account: GmailAccount) {
-        // Extract profile image URL from Gmail's page
-        let js = """
-        (function() {
-            var img = document.querySelector('img.gb_l, img.gb_m, a[href*="accounts.google.com"] img, img[data-srcset*="googleusercontent"]');
-            if (img) return img.src || img.getAttribute('data-srcset') || '';
-            return '';
-        })()
-        """
-        account.webView.evaluateJavaScript(js) { [weak self] result, _ in
-            guard let urlString = result as? String, !urlString.isEmpty,
-                  let url = URL(string: urlString) else {
-                // Fallback: try again after a delay (Gmail may not have loaded the avatar yet)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                    self?.retryFetchProfileImage(for: account, attempt: 1)
-                }
-                return
-            }
-            self?.downloadProfileImage(from: url, for: account)
+    private let profileLogger = Logger(subsystem: "com.peekmail.app", category: "profile")
+
+    func refreshProfileImage(for account: GmailAccount) {
+        guard account.profileImageData == nil else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak account] in
+            guard let self, let account,
+                  self.accountManager.currentWebView === account.webView else { return }
+            self.fetchProfileImage(for: account)
         }
     }
 
-    private func retryFetchProfileImage(for account: GmailAccount, attempt: Int) {
-        guard attempt < 5, account.profileImageData == nil else { return }
+    private func fetchProfileImage(for account: GmailAccount, attempt: Int = 0) {
+        guard account.profileImageData == nil,
+              accountManager.currentWebView === account.webView else { return }
+
+        // Gmail may render the avatar as an image or a CSS background. Find the visible
+        // square inside the active account control, then snapshot exactly what Gmail shows.
+        let expectedEmailLiteral = String(reflecting: account.email ?? "")
         let js = """
         (function() {
-            var imgs = document.querySelectorAll('img');
-            for (var i = 0; i < imgs.length; i++) {
-                var src = imgs[i].src || '';
-                if (src.includes('googleusercontent.com') && (src.includes('photo') || src.includes('/a/'))) {
-                    return src;
-                }
+            var expectedEmail = \(expectedEmailLiteral);
+
+            function isVisibleTopRight(element) {
+                if (!element) return false;
+                var rect = element.getBoundingClientRect();
+                var style = window.getComputedStyle(element);
+                if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+                if (element.checkVisibility && !element.checkVisibility({checkOpacity: true, checkVisibilityCSS: true})) return false;
+                var hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+                return rect.width >= 24 && rect.height >= 24 &&
+                    rect.top >= 0 && rect.top < 180 &&
+                    rect.right > window.innerWidth - 260 &&
+                    hit && (hit === element || element.contains(hit) || hit.contains(element));
             }
-            return '';
+
+            var controls = Array.from(document.querySelectorAll(
+                '[aria-label*="Google Account"], a[href*="SignOutOptions"]'
+            )).filter(isVisibleTopRight);
+
+            controls.sort(function(a, b) {
+                var aMatches = (a.getAttribute('aria-label') || '').indexOf(expectedEmail) !== -1 ? 1 : 0;
+                var bMatches = (b.getAttribute('aria-label') || '').indexOf(expectedEmail) !== -1 ? 1 : 0;
+                if (aMatches !== bMatches) return bMatches - aMatches;
+                return b.getBoundingClientRect().right - a.getBoundingClientRect().right;
+            });
+
+            function payloadForControl(control) {
+                var elements = [control].concat(Array.from(control.querySelectorAll('*')));
+                var avatarElements = elements.filter(function(element) {
+                    var rect = element.getBoundingClientRect();
+                    return isVisibleTopRight(element) &&
+                        rect.width >= 24 && rect.width <= 64 &&
+                        rect.height >= 24 && rect.height <= 64 &&
+                        Math.abs(rect.width - rect.height) <= 8;
+                });
+
+                avatarElements.sort(function(a, b) {
+                    var aRect = a.getBoundingClientRect();
+                    var bRect = b.getBoundingClientRect();
+                    if (aRect.right !== bRect.right) return bRect.right - aRect.right;
+                    return (aRect.width * aRect.height) - (bRect.width * bRect.height);
+                });
+
+                var avatar = avatarElements[0];
+                if (!avatar) return null;
+                var rect = avatar.getBoundingClientRect();
+                return {
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: rect.height
+                };
+            }
+
+            for (var i = 0; i < controls.length; i++) {
+                var payload = payloadForControl(controls[i]);
+                if (payload) return payload;
+            }
+            return null;
         })()
         """
-        account.webView.evaluateJavaScript(js) { [weak self] result, _ in
-            guard let urlString = result as? String, !urlString.isEmpty,
-                  let url = URL(string: urlString) else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                    self?.retryFetchProfileImage(for: account, attempt: attempt + 1)
+        account.webView.evaluateJavaScript(js) { [weak self, weak account] result, error in
+            guard let self, let account else { return }
+            guard let payload = result as? [String: Any] else {
+                if let error {
+                    self.profileLogger.debug("Avatar lookup failed for account \(account.id): \(error.localizedDescription, privacy: .public)")
                 }
+                self.scheduleProfileImageRetry(for: account, attempt: attempt + 1)
                 return
             }
-            self?.downloadProfileImage(from: url, for: account)
+
+            guard let x = payload["x"] as? Double,
+                  let y = payload["y"] as? Double,
+                  let width = payload["width"] as? Double,
+                  let height = payload["height"] as? Double,
+                  width >= 24,
+                  height >= 24 else {
+                self.scheduleProfileImageRetry(for: account, attempt: attempt + 1)
+                return
+            }
+
+            self.snapshotProfileImage(
+                in: CGRect(x: x, y: y, width: width, height: height),
+                for: account,
+                attempt: attempt
+            )
         }
     }
 
-    private func downloadProfileImage(from url: URL, for account: GmailAccount) {
-        // Request a larger version of the image
-        let largerURL: URL
-        if url.absoluteString.contains("=s") {
-            largerURL = URL(string: url.absoluteString.replacingOccurrences(of: #"=s\d+"#, with: "=s96", options: .regularExpression)) ?? url
-        } else {
-            largerURL = url
-        }
+    private func snapshotProfileImage(in rect: CGRect, for account: GmailAccount, attempt: Int) {
+        let configuration = WKSnapshotConfiguration()
+        configuration.rect = rect
 
-        URLSession.shared.dataTask(with: largerURL) { data, _, _ in
-            guard let data = data, NSImage(data: data) != nil else { return }
-            DispatchQueue.main.async {
-                account.profileImageData = data
+        account.webView.takeSnapshot(with: configuration) { [weak self, weak account] image, error in
+            guard let self, let account else { return }
+            if let image,
+               let tiffData = image.tiffRepresentation,
+               let representation = NSBitmapImageRep(data: tiffData),
+               let pngData = representation.representation(using: .png, properties: [:]) {
+                DispatchQueue.main.async {
+                    self.profileImageRetryWorkItems[account.id]?.cancel()
+                    self.profileImageRetryWorkItems[account.id] = nil
+                    self.accountManager.setProfileImageData(pngData, for: account)
+                }
+                return
             }
-        }.resume()
+
+            if let error {
+                self.profileLogger.debug("Avatar snapshot failed for account \(account.id): \(error.localizedDescription, privacy: .public)")
+            }
+            self.scheduleProfileImageRetry(for: account, attempt: attempt + 1)
+        }
+    }
+
+    private func scheduleProfileImageRetry(for account: GmailAccount, attempt: Int) {
+        guard attempt <= 12,
+              account.profileImageData == nil,
+              accountManager.currentWebView === account.webView else { return }
+
+        profileImageRetryWorkItems[account.id]?.cancel()
+        let workItem = DispatchWorkItem { [weak self, weak account] in
+            guard let self, let account,
+                  account.profileImageData == nil,
+                  self.accountManager.currentWebView === account.webView else { return }
+            self.fetchProfileImage(for: account, attempt: attempt)
+        }
+        profileImageRetryWorkItems[account.id] = workItem
+        let delay = min(2.0 + Double(attempt), 10.0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
     private func parseEmail(from title: String) -> String? {
@@ -501,10 +653,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         account.webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
             let googleCookies = cookies.filter { $0.domain.contains("google.com") || $0.domain.contains("gmail.com") }
             if googleCookies.isEmpty { return }
-
-            let cookieHeader = googleCookies
-                .map { "\($0.name)=\($0.value)" }
-                .joined(separator: "; ")
 
             // Use an ephemeral session so cookies don't leak between accounts
             let config = URLSessionConfiguration.ephemeral
@@ -653,6 +801,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 extension AppDelegate: NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         sender.orderOut(nil)
+        ensureStatusItem()
         return false
     }
 }

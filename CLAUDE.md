@@ -61,7 +61,8 @@ generate_icon.swift            # Standalone Swift script to regenerate app icons
 ### Account Sidebar (MainWindowView.swift)
 - Light blue-grey sidebar (`#EEF1F7`) with 80pt width
 - 40pt top spacer for macOS traffic light buttons
-- Account avatars: 44px circles with 50px blue selection ring
+- Account avatars: 44px circles inside fixed 52px layout boxes with a 50px blue selection ring, so switching accounts does not shift the stack
+- Profile images are captured from Gmail's visible account control and cached per account UUID in UserDefaults; inactive webviews are never used for avatar extraction
 - Unread badge: red capsule with white count text, offset to top-right
 - Dashed circle "+" button to add new accounts
 - Bottom: reload and settings gear icons
@@ -121,6 +122,12 @@ Clicking a CTA/link in an email loaded the page inside Peekmail instead of the d
 
 ### Update Checker (2026-06-11, v1.3)
 `UpdateChecker.swift` queries `https://api.github.com/repos/alexanderghui/Peekmail/releases/latest`, compares `tag_name` (v-prefix stripped) against `CFBundleShortVersionString`, and shows an NSAlert offering the `.dmg` asset download (opens in browser; user drags to /Applications). Checks 10s after launch + every 24h (each version offered only once, tracked via `lastOfferedUpdateVersion` UserDefault); "Check for Updates…" button in Settings → About always reports a result. No Sparkle — doesn't fit sandbox or no-dependencies rule. **Releases must be published as GitHub Releases with the DMG attached** (e.g. `gh release create v1.3 build/Peekmail.dmg`) or the checker has nothing to find.
+
+### Multi-Account Avatars, Menu-Bar Lifecycle, and Same-Window Links (2026-08-25, v1.4)
+- Replaced brittle Gmail CSS-class avatar lookup with a snapshot of the visible account control. Fetches run only for the selected webview and successful 96px images persist per account UUID. Removing an account removes its cached image.
+- Fixed avatar movement by giving every account button the same 52px layout box whether selected or not.
+- Hardened menu-bar lifecycle: the app explicitly remains running after its last window closes, restores the status item on close/activation/reopen and with a 30-second health check, and uses `NSMenu.popUp` instead of temporarily attaching and detaching the context menu.
+- Main-frame navigation away from Gmail now opens in the default browser, catching links that replace the page through same-window anchors or JavaScript in addition to existing `target="_blank"` handling. Session redirects from Gmail to `accounts.google.com` remain in-app.
 
 ## Known Issues
 

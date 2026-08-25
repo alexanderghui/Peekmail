@@ -51,6 +51,10 @@ struct GmailWebView: NSViewRepresentable {
     class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         private let logger = Logger(subsystem: "com.peekmail.app", category: "navigation")
 
+        private func host(_ host: String, belongsTo domain: String) -> Bool {
+            host == domain || host.hasSuffix(".\(domain)")
+        }
+
         private func isGoogleDomain(_ host: String) -> Bool {
             let googleDomains = [
                 "google.com", "googleapis.com", "gstatic.com", "googleusercontent.com",
@@ -59,7 +63,9 @@ struct GmailWebView: NSViewRepresentable {
                 "gmail.com", "google.com.au", "google.co.uk", "google.ca",
                 "recaptcha.net", "goog"
             ]
-            return googleDomains.contains { host.hasSuffix($0) } || host.contains("google")
+            return googleDomains.contains { domain in
+                self.host(host, belongsTo: domain)
+            }
         }
 
         private func shouldOpenExternally(_ url: URL) -> Bool {
@@ -91,6 +97,10 @@ struct GmailWebView: NSViewRepresentable {
             return host == "accounts.google.com" || host == "mail.google.com"
         }
 
+        private func isGmailURL(_ url: URL) -> Bool {
+            url.host?.lowercased() == "mail.google.com"
+        }
+
         // Gmail wraps email-body links in its safe-redirect URL (google.com/url?q=<destination>),
         // which passes the Google domain check even when the destination is external
         private func unwrapGoogleRedirect(_ url: URL) -> URL {
@@ -105,7 +115,7 @@ struct GmailWebView: NSViewRepresentable {
             return targetURL
         }
 
-        // Handle new window requests (e.g., target="_blank" links) — open non-Google in browser
+        // Handle new window requests (e.g., target="_blank" links) in the default browser.
         func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
             logger.info("createWebView url=\(navigationAction.request.url?.absoluteString ?? "nil", privacy: .public)")
             if let url = navigationAction.request.url {
@@ -131,6 +141,23 @@ struct GmailWebView: NSViewRepresentable {
             logger.info("decidePolicy url=\(url.absoluteString, privacy: .public) frame=\(frameDesc, privacy: .public) type=\(navigationAction.navigationType.rawValue)")
 
             let destination = unwrapGoogleRedirect(url)
+
+            // Once Gmail owns the main frame, it should never be replaced by a clicked
+            // destination. This also catches links that use window.location instead of
+            // target="_blank" and Google destinations that pass the domain allowlist.
+            if navigationAction.targetFrame?.isMainFrame == true,
+               isGmailURL(webView.url ?? url),
+               isWebLink(destination) {
+                let isDirectClickAwayFromGmail = navigationAction.navigationType == .linkActivated && !isGmailURL(destination)
+                let isNonAuthDeparture = !isGmailURL(destination) && !isAuthPopup(destination)
+
+                if isDirectClickAwayFromGmail || isNonAuthDeparture {
+                    logger.info("Opening main-frame departure externally: \(destination.absoluteString, privacy: .public)")
+                    NSWorkspace.shared.open(destination)
+                    decisionHandler(.cancel)
+                    return
+                }
+            }
 
             // New-window requests are clicked links (email CTAs, target="_blank") —
             // those always go to the default browser, even for Google destinations

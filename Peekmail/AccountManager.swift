@@ -12,6 +12,7 @@ class GmailAccount: ObservableObject, Identifiable {
     init(id: UUID = UUID(), email: String? = nil, isNew: Bool = false) {
         self.id = id
         self.email = email
+        self.profileImageData = UserDefaults.standard.data(forKey: Self.profileImageKey(for: id))
 
         // Each account gets its own isolated data store so cookies/sessions are separate.
         // This allows multiple Gmail accounts to be logged in simultaneously.
@@ -34,6 +35,10 @@ class GmailAccount: ObservableObject, Identifiable {
             // Existing logged-in account: load Gmail directly (session restored from isolated data store)
             self.webView.load(URLRequest(url: URL(string: "https://mail.google.com")!))
         }
+    }
+
+    static func profileImageKey(for id: UUID) -> String {
+        "profileImage.\(id.uuidString)"
     }
 }
 
@@ -63,6 +68,7 @@ class AccountManager: ObservableObject {
 
         // Clear the data store for the removed account
         let account = accounts[index]
+        UserDefaults.standard.removeObject(forKey: GmailAccount.profileImageKey(for: account.id))
         account.webView.configuration.websiteDataStore.removeData(
             ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
             modifiedSince: .distantPast
@@ -75,6 +81,12 @@ class AccountManager: ObservableObject {
         }
 
         saveAccounts()
+    }
+
+    func setProfileImageData(_ data: Data, for account: GmailAccount) {
+        guard accounts.contains(where: { $0.id == account.id }) else { return }
+        account.profileImageData = data
+        UserDefaults.standard.set(data, forKey: GmailAccount.profileImageKey(for: account.id))
     }
 
     // MARK: - Persistence

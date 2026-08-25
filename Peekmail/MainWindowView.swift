@@ -40,6 +40,7 @@ struct MainWindowView: View {
                         isSelected: index == accountManager.selectedIndex,
                         action: {
                             accountManager.selectedIndex = index
+                            AppDelegate.shared?.refreshProfileImage(for: account)
                         },
                         onRemove: accountManager.accounts.count > 1 ? {
                             removeAccount(at: index)
@@ -125,11 +126,10 @@ struct AccountAvatarButton: View {
         Button(action: action) {
             ZStack {
                 // Selection ring
-                if isSelected {
-                    Circle()
-                        .stroke(Color.blue, lineWidth: 2.5)
-                        .frame(width: 50, height: 50)
-                }
+                Circle()
+                    .stroke(Color.blue, lineWidth: 2.5)
+                    .frame(width: 50, height: 50)
+                    .opacity(isSelected ? 1 : 0)
 
                 // Avatar
                 if let imageData = account.profileImageData, let nsImage = NSImage(data: imageData) {
@@ -170,6 +170,7 @@ struct AccountAvatarButton: View {
                         .offset(x: 18, y: -18)
                 }
             }
+            .frame(width: 52, height: 52)
         }
         .buttonStyle(.plain)
         .help(account.email ?? "Gmail Account")
