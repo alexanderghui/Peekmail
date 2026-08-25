@@ -138,6 +138,11 @@ The original updater checked the GitHub Releases API and opened the release DMG 
 - `SUFeedURL` points to the committed `appcast.xml` on the repository's `main` branch. `scripts/release.sh` signs the final notarized DMG and generates that feed.
 - v1.4 and older do not contain Sparkle, so v1.5 requires one last manual DMG install. Updates after v1.5 install in-app.
 
+### Stable Window Frame Across Reopen (2026-08-25, v1.6)
+- Fixed AppKit shrinking a top-flush main window by the 32-point menu-bar inset when the hidden window was moved to the active Space and reordered.
+- Peekmail now captures the exact non-full-screen frame before every hide path and restores it after the window is shown, including a second pass on the next run loop for deferred Space adjustments.
+- Frame autosave restoration now happens after all titlebar and window configuration, and the restored launch frame is captured before the window is first shown.
+
 ## Known Issues
 
 ### App Icon Grey Border

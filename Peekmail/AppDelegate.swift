@@ -8,6 +8,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem?
     private var mainWindow: NSWindow?
+    private var mainWindowFrameBeforeHiding: NSRect?
     private var settingsWindow: NSWindow?
     private var accountManager = AccountManager.shared
     private var notificationManager = NotificationManager.shared
@@ -154,7 +155,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func toggleMainWindow() {
         if let window = mainWindow, window.isVisible {
-            window.orderOut(nil)
+            hideMainWindow()
         } else {
             showMainWindow()
         }
@@ -168,9 +169,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let window = mainWindow else { return }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        restoreMainWindowFrameIfNeeded(window)
 
         if accountManager.selectedIndex < accountManager.accounts.count {
             refreshProfileImage(for: accountManager.accounts[accountManager.selectedIndex])
+        }
+    }
+
+    private func hideMainWindow() {
+        guard let window = mainWindow else { return }
+
+        if !window.styleMask.contains(.fullScreen) {
+            mainWindowFrameBeforeHiding = window.frame
+        }
+
+        window.orderOut(nil)
+        ensureStatusItem()
+    }
+
+    private func restoreMainWindowFrameIfNeeded(_ window: NSWindow) {
+        guard let preservedFrame = mainWindowFrameBeforeHiding,
+              !window.styleMask.contains(.fullScreen) else { return }
+
+        window.setFrame(preservedFrame, display: true)
+
+        // Moving the window to the active Space can adjust its frame after it is ordered in.
+        DispatchQueue.main.async { [weak window] in
+            guard let window, window.isVisible,
+                  !window.styleMask.contains(.fullScreen),
+                  window.frame != preservedFrame else { return }
+            window.setFrame(preservedFrame, display: true)
         }
     }
 
@@ -188,7 +216,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.title = "Peekmail"
         window.contentView = NSHostingView(rootView: contentView)
         window.center()
-        window.setFrameAutosaveName("PeekmailMainWindow")
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.titlebarAppearsTransparent = true
@@ -199,8 +226,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.toolbar?.isVisible = false
         window.minSize = NSSize(width: 600, height: 400)
         window.collectionBehavior = [.moveToActiveSpace]
+        window.setFrameAutosaveName("PeekmailMainWindow")
 
         self.mainWindow = window
+        mainWindowFrameBeforeHiding = window.frame
     }
 
     // MARK: - Context Menu
@@ -279,8 +308,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func hideWindow() {
-        mainWindow?.orderOut(nil)
-        ensureStatusItem()
+        hideMainWindow()
     }
 
     @objc private func composeEmail() {
@@ -803,8 +831,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 extension AppDelegate: NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        sender.orderOut(nil)
-        ensureStatusItem()
+        if sender === mainWindow {
+            hideMainWindow()
+        } else {
+            sender.orderOut(nil)
+        }
         return false
     }
 }
