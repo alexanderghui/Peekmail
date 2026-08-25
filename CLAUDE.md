@@ -148,6 +148,11 @@ The original updater checked the GitHub Releases API and opened the release DMG 
 - Profile image cache version 2 invalidates those old captures once and snapshots Gmail's complete Google Account control instead of its inner image element.
 - Peekmail does not recreate or draw Google's ring. The sidebar now reflects the profile control that Google renders for each account.
 
+### Workspace Profile Photo Fallback (2026-08-25, v1.8)
+- Some Google Workspace accounts render a generated initial in Gmail's top-right account control even though Google's account panel contains the real profile photo.
+- Peekmail rejects flat generated-initial snapshots, reads the real Google-hosted image from the isolated account frame, and caches it per account.
+- For affected accounts only, Peekmail keeps that recovered photo in Gmail's top-right control when Gmail rerenders its fallback. Other accounts retain Google's complete control, including Google-provided profile rings.
+
 ## Known Issues
 
 ### App Icon Grey Border
