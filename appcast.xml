@@ -1,0 +1,15 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Peekmail</title>
+        <item>
+            <title>1.5</title>
+            <pubDate>Tue, 25 Aug 2026 14:04:47 -0600</pubDate>
+            <link>https://github.com/alexanderghui/Peekmail/releases/tag/v1.5</link>
+            <sparkle:version>6</sparkle:version>
+            <sparkle:shortVersionString>1.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/alexanderghui/Peekmail/releases/download/v1.5/Peekmail-1.5.dmg" length="1763047" type="application/octet-stream" sparkle:edSignature="geaMgZDg9c3kgwWbhQ3kPVBU4hjh5c+bJj4jIxl5T2MUDME1zKjHVDYM9kdPXXLhLEQR0hsRvGG00cKaetZgDw=="/>
+        </item>
+    </channel>
+</rss>

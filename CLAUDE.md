@@ -1,12 +1,13 @@
 # Peekmail - Project Context for Claude Code
 
 ## What is Peekmail?
-A native macOS menu bar Gmail client built in Swift. Replaces "Made for Gmail" by Fiplab which stopped working (blank WebView). Built entirely from scratch with no external dependencies. Supports multiple Gmail accounts with isolated sessions.
+A native macOS menu bar Gmail client built in Swift. Replaces "Made for Gmail" by Fiplab which stopped working (blank WebView). Supports multiple Gmail accounts with isolated sessions.
 
 ## Architecture
 
 ### Core Tech
-- **Swift + SwiftUI + AppKit** (no external packages)
+- **Swift + SwiftUI + AppKit**
+- **Sparkle 2** for signed, in-app updates
 - **WKWebView** for Gmail rendering with persistent sessions
 - **Gmail Atom feed** (`https://mail.google.com/mail/feed/atom`) for unread count polling every 5 seconds
 - **UNUserNotificationCenter** for desktop notifications
@@ -28,7 +29,7 @@ Peekmail/
 ├── MainWindowView.swift       # SwiftUI view with account sidebar + avatar buttons
 ├── NotificationManager.swift  # UNUserNotification delegate, rich notifications, click-to-open
 ├── SettingsView.swift         # General + About tabs (dock toggle, sounds, launch at login, check for updates)
-├── UpdateChecker.swift        # Checks GitHub Releases API for newer versions, offers DMG download
+├── UpdateChecker.swift        # Owns Sparkle's standard in-app updater
 ├── Info.plist                 # LSUIElement=true, min macOS 13.0
 ├── Peekmail.entitlements      # App Sandbox + network.client
 └── Assets.xcassets/           # App icon (dark gradient + white envelope outline)
@@ -120,14 +121,22 @@ Converted `print()` statements to `os.Logger` calls. Removed unused code: `goBac
 ### Email CTA Links Open In-App — Fixed (2026-06-11, v1.2)
 Clicking a CTA/link in an email loaded the page inside Peekmail instead of the default browser. Two causes: (1) Gmail wraps email links in `google.com/url?q=<dest>`, which passed the Google domain allowlist; (2) even unwrapped, Google destinations (Docs/Slides) matched the allowlist. Fix in GmailWebView.swift: `unwrapGoogleRedirect()` extracts the real destination, and `decidePolicyFor` now sends ALL new-window requests (`targetFrame == nil`) to the default browser except auth popups (`accounts.google.com`/`mail.google.com`). Added os.Logger navigation logging (subsystem `com.peekmail.app`, category `navigation`; info-level — view with `/usr/bin/log stream --info`, noting `log` is shadowed by a zsh builtin).
 
-### Update Checker (2026-06-11, v1.3)
-`UpdateChecker.swift` queries `https://api.github.com/repos/alexanderghui/Peekmail/releases/latest`, compares `tag_name` (v-prefix stripped) against `CFBundleShortVersionString`, and shows an NSAlert offering the `.dmg` asset download (opens in browser; user drags to /Applications). Checks 10s after launch + every 24h (each version offered only once, tracked via `lastOfferedUpdateVersion` UserDefault); "Check for Updates…" button in Settings → About always reports a result. No Sparkle — doesn't fit sandbox or no-dependencies rule. **Releases must be published as GitHub Releases with the DMG attached** (e.g. `gh release create v1.3 build/Peekmail.dmg`) or the checker has nothing to find.
+### Download-Only Update Checker (2026-06-11, v1.3)
+The original updater checked the GitHub Releases API and opened the release DMG in the browser. It notified users about releases but still required them to replace the app manually. This was superseded by Sparkle in v1.5.
 
 ### Multi-Account Avatars, Menu-Bar Lifecycle, and Same-Window Links (2026-08-25, v1.4)
 - Replaced brittle Gmail CSS-class avatar lookup with a snapshot of the visible account control. Fetches run only for the selected webview and successful 96px images persist per account UUID. Removing an account removes its cached image.
 - Fixed avatar movement by giving every account button the same 52px layout box whether selected or not.
 - Hardened menu-bar lifecycle: the app explicitly remains running after its last window closes, restores the status item on close/activation/reopen and with a 30-second health check, and uses `NSMenu.popUp` instead of temporarily attaching and detaching the context menu.
 - Main-frame navigation away from Gmail now opens in the default browser, catching links that replace the page through same-window anchors or JavaScript in addition to existing `target="_blank"` handling. Session redirects from Gmail to `accounts.google.com` remain in-app.
+
+### In-App Updates (2026-08-25, v1.5)
+- Replaced the download-only checker with Sparkle 2.9.6. Manual checks now download, verify, install, and relaunch Peekmail from Sparkle's standard update UI.
+- Automatic checks and automatic installation are enabled. `UpdateChecker` owns `SPUStandardUpdaterController` for the app lifetime.
+- The sandboxed installer launcher is enabled with `SUEnableInstallerLauncherService`; the app entitlements allow the `-spks` and `-spki` Mach services. The separate downloader service is not enabled because Peekmail already has outbound network access.
+- Updates are verified with the EdDSA public key in `Info.plist`. The private key is stored in Alex's login Keychain under Sparkle's default `ed25519` account and must never be committed.
+- `SUFeedURL` points to the committed `appcast.xml` on the repository's `main` branch. `scripts/release.sh` signs the final notarized DMG and generates that feed.
+- v1.4 and older do not contain Sparkle, so v1.5 requires one last manual DMG install. Updates after v1.5 install in-app.
 
 ## Known Issues
 
@@ -149,5 +158,6 @@ swift generate_icon.swift
 
 ## Distribution
 - GitHub repo: https://github.com/alexanderghui/Peekmail
-- Signed release pipeline: `scripts/release.sh` archives a Release build signed with "Developer ID Application: Alex Hui (43WKQQ4453)", packages a DMG, notarizes via `notarytool` (keychain profile `Peekmail-Notarize`), and staples the ticket
+- Signed release pipeline: `scripts/release.sh` archives a Release build signed with "Developer ID Application: Alex Hui (43WKQQ4453)", creates a versioned DMG, notarizes via `notarytool` (keychain profile `Peekmail-Notarize`), staples it, signs it with Sparkle's EdDSA key, and generates `appcast.xml`
+- Publish the generated `build/Peekmail-VERSION.dmg` as the asset for GitHub release `vVERSION`, then commit and push the generated `appcast.xml`. The appcast enclosure URL and release asset name must match exactly.
 - Installed copy lives in /Applications/Peekmail.app

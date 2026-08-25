@@ -11,9 +11,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var accountManager = AccountManager.shared
     private var notificationManager = NotificationManager.shared
+    private let updateChecker = UpdateChecker.shared
     private var webViewObservations: [NSKeyValueObservation] = []
     private var feedPollTimer: Timer?
-    private var updateCheckTimer: Timer?
     private var statusItemHealthTimer: Timer?
     private var profileImageRetryWorkItems: [UUID: DispatchWorkItem] = [:]
     private var notifiedEmailIds: Set<String> = []
@@ -38,14 +38,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItemHealthTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             self?.ensureStatusItem()
-        }
-
-        // Check for updates shortly after launch, then daily (the app runs for days)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
-            UpdateChecker.shared.checkInBackground()
-        }
-        updateCheckTimer = Timer.scheduledTimer(withTimeInterval: 24 * 60 * 60, repeats: true) { _ in
-            UpdateChecker.shared.checkInBackground()
         }
 
         // Fetch the visible account's profile image after Gmail has rendered.
@@ -83,6 +75,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let appMenu = NSMenu()
         appMenu.addItem(NSMenuItem(title: "About Peekmail", action: #selector(openPreferences), keyEquivalent: ""))
         appMenu.addItem(.separator())
+        let checkForUpdatesItem = NSMenuItem(
+            title: "Check for Updates...",
+            action: #selector(checkForUpdates),
+            keyEquivalent: ""
+        )
+        checkForUpdatesItem.target = self
+        appMenu.addItem(checkForUpdatesItem)
         appMenu.addItem(NSMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ","))
         appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "Quit Peekmail", action: #selector(quitApp), keyEquivalent: "q"))
@@ -118,6 +117,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(viewMenuItem)
 
         NSApp.mainMenu = mainMenu
+    }
+
+    @objc private func checkForUpdates() {
+        updateChecker.checkManually()
     }
 
     // MARK: - Menu Bar

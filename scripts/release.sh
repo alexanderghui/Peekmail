@@ -10,13 +10,16 @@ SCHEME="Peekmail"
 ARCHIVE_PATH="$PROJECT_DIR/build/Peekmail.xcarchive"
 EXPORT_DIR="$PROJECT_DIR/build/Release"
 EXPORT_OPTIONS="$SCRIPT_DIR/ExportOptions.plist"
-DMG_NAME="Peekmail.dmg"
-DMG_PATH="$PROJECT_DIR/build/$DMG_NAME"
+DERIVED_DATA_PATH="$PROJECT_DIR/build/DerivedData"
+APPCAST_STAGING_DIR="$PROJECT_DIR/build/appcast-staging"
+GENERATE_APPCAST="$DERIVED_DATA_PATH/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_appcast"
 NOTARIZE_PROFILE="Peekmail-Notarize"
 
 # Get version from Info.plist
 VERSION=$(defaults read "$PROJECT_DIR/Peekmail/Info.plist" CFBundleShortVersionString 2>/dev/null || echo "1.0")
 BUILD=$(defaults read "$PROJECT_DIR/Peekmail/Info.plist" CFBundleVersion 2>/dev/null || echo "1")
+DMG_NAME="Peekmail-${VERSION}.dmg"
+DMG_PATH="$PROJECT_DIR/build/$DMG_NAME"
 
 echo "========================================="
 echo "  Peekmail Release Build v${VERSION} (${BUILD})"
@@ -25,13 +28,14 @@ echo ""
 
 # Clean previous build artifacts
 echo "🧹 Cleaning previous builds..."
-rm -rf "$ARCHIVE_PATH" "$EXPORT_DIR" "$DMG_PATH"
+rm -rf "$ARCHIVE_PATH" "$EXPORT_DIR" "$DMG_PATH" "$APPCAST_STAGING_DIR"
 
 # Step 1: Archive
 echo "📦 Archiving..."
 xcodebuild archive \
   -scheme "$SCHEME" \
   -archivePath "$ARCHIVE_PATH" \
+  -derivedDataPath "$DERIVED_DATA_PATH" \
   -configuration Release \
   CODE_SIGN_IDENTITY="Developer ID Application: Alex Hui (43WKQQ4453)" \
   DEVELOPMENT_TEAM="43WKQQ4453" \
@@ -102,9 +106,30 @@ echo "🔍 Final verification..."
 spctl --assess --type open --context context:primary-signature "$DMG_PATH"
 echo "✅ DMG passes Gatekeeper"
 
+# Step 8: Sign the final notarized DMG and generate Sparkle's update feed.
+echo "📝 Generating signed Sparkle appcast..."
+if [ ! -x "$GENERATE_APPCAST" ]; then
+  echo "❌ Sparkle generate_appcast tool not found at $GENERATE_APPCAST"
+  exit 1
+fi
+
+mkdir -p "$APPCAST_STAGING_DIR"
+cp "$DMG_PATH" "$APPCAST_STAGING_DIR/$DMG_NAME"
+
+"$GENERATE_APPCAST" \
+  --download-url-prefix "https://github.com/alexanderghui/Peekmail/releases/download/v${VERSION}/" \
+  --link "https://github.com/alexanderghui/Peekmail/releases/tag/v${VERSION}" \
+  --maximum-versions 1 \
+  -o "$PROJECT_DIR/appcast.xml" \
+  "$APPCAST_STAGING_DIR"
+
+rm -rf "$APPCAST_STAGING_DIR"
+echo "✅ Signed appcast generated"
+
 echo ""
 echo "========================================="
 echo "  🎉 Release build complete!"
 echo "  DMG: $DMG_PATH"
+echo "  Appcast: $PROJECT_DIR/appcast.xml"
 echo "  Version: $VERSION ($BUILD)"
 echo "========================================="
