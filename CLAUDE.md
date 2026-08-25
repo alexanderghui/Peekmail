@@ -153,6 +153,11 @@ The original updater checked the GitHub Releases API and opened the release DMG 
 - Peekmail rejects flat generated-initial snapshots, reads the real Google-hosted image from the isolated account frame, and caches it per account.
 - For affected accounts only, Peekmail keeps that recovered photo in Gmail's top-right control when Gmail rerenders its fallback. Other accounts retain Google's complete control, including Google-provided profile rings.
 
+### Workspace Profile Photo Follow-up (2026-08-25, v1.9)
+- Corrected the v1.8 cache flag that was assigned to normal Google control snapshots instead of recovered Workspace photos.
+- Buffers profile-photo messages that arrive before the app delegate is ready and invalidates the v1.8 avatar cache so affected accounts retry automatically.
+- Removes keyboard focus after Peekmail briefly opens or closes Google's account panel, preventing the top-right account pill from remaining highlighted.
+
 ## Known Issues
 
 ### App Icon Grey Border

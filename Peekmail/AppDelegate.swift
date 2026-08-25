@@ -653,12 +653,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 DispatchQueue.main.async {
                     self.profileImageRetryWorkItems[account.id]?.cancel()
                     self.profileImageRetryWorkItems[account.id] = nil
-                    self.accountManager.setProfileImageData(
-                        pngData,
-                        for: account,
-                        useForGoogleControl: true
-                    )
-                    self.applyProfileImageToGoogleControl(for: account)
+                    self.accountManager.setProfileImageData(pngData, for: account)
                 }
                 return
             }
@@ -701,7 +696,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             var control = controls.find(function(candidate) {
                 return (candidate.getAttribute('aria-label') || '').indexOf('Google Account') !== -1;
             }) || controls[0];
-            if (control && control.getAttribute('aria-expanded') !== 'true') control.click();
+            if (control && control.getAttribute('aria-expanded') !== 'true') {
+                control.click();
+                control.blur();
+            }
         })()
         """
         account.webView.evaluateJavaScript(js, completionHandler: nil)
@@ -750,7 +748,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.profileImageDownloads.remove(account.id)
                     self.profileImageRetryWorkItems[account.id]?.cancel()
                     self.profileImageRetryWorkItems[account.id] = nil
-                    self.accountManager.setProfileImageData(pngData, for: account)
+                    self.accountManager.setProfileImageData(
+                        pngData,
+                        for: account,
+                        useForGoogleControl: true
+                    )
+                    self.applyProfileImageToGoogleControl(for: account)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                         self.closeAccountPanel(for: account)
                     }
@@ -810,7 +813,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             var expanded = controls.find(function(control) {
                 return control.getAttribute('aria-expanded') === 'true';
             });
-            if (expanded) expanded.click();
+            if (expanded) {
+                expanded.click();
+                expanded.blur();
+            }
+            if (document.activeElement && document.activeElement.blur) {
+                document.activeElement.blur();
+            }
         })()
         """
         account.webView.evaluateJavaScript(js, completionHandler: nil)

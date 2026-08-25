@@ -3,7 +3,15 @@ import WebKit
 import Combine
 
 final class ProfileImageMessageHandler: NSObject, WKScriptMessageHandler {
-    static var onCandidate: ((UUID, URL) -> Void)?
+    private static var pendingCandidates: [UUID: URL] = [:]
+    static var onCandidate: ((UUID, URL) -> Void)? {
+        didSet {
+            guard let onCandidate else { return }
+            let candidates = pendingCandidates
+            pendingCandidates.removeAll()
+            candidates.forEach(onCandidate)
+        }
+    }
 
     private let accountID: UUID
 
@@ -13,7 +21,11 @@ final class ProfileImageMessageHandler: NSObject, WKScriptMessageHandler {
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let source = message.body as? String, let url = URL(string: source) else { return }
-        Self.onCandidate?(accountID, url)
+        if let onCandidate = Self.onCandidate {
+            onCandidate(accountID, url)
+        } else {
+            Self.pendingCandidates[accountID] = url
+        }
     }
 }
 
@@ -116,7 +128,7 @@ class GmailAccount: ObservableObject, Identifiable {
         "profileImageForGoogleControl.\(id.uuidString)"
     }
 
-    static let profileImageCacheVersion = 3
+    static let profileImageCacheVersion = 4
 }
 
 class AccountManager: ObservableObject {
