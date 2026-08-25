@@ -143,6 +143,11 @@ The original updater checked the GitHub Releases API and opened the release DMG 
 - Peekmail now captures the exact non-full-screen frame before every hide path and restores it after the window is shown, including a second pass on the next run loop for deferred Space adjustments.
 - Frame autosave restoration now happens after all titlebar and window configuration, and the restored launch frame is captured before the window is first shown.
 
+### Preserve Google's Profile Decorations (2026-08-25, v1.7)
+- Legacy Peekmail versions cached the raw profile image URL, which stripped Google-provided decorations such as the four-color ring around some account photos.
+- Profile image cache version 2 invalidates those old captures once and snapshots Gmail's complete Google Account control instead of its inner image element.
+- Peekmail does not recreate or draw Google's ring. The sidebar now reflects the profile control that Google renders for each account.
+
 ## Known Issues
 
 ### App Icon Grey Border

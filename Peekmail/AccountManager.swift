@@ -12,7 +12,14 @@ class GmailAccount: ObservableObject, Identifiable {
     init(id: UUID = UUID(), email: String? = nil, isNew: Bool = false) {
         self.id = id
         self.email = email
-        self.profileImageData = UserDefaults.standard.data(forKey: Self.profileImageKey(for: id))
+        let defaults = UserDefaults.standard
+        if defaults.integer(forKey: Self.profileImageVersionKey(for: id)) == Self.profileImageCacheVersion {
+            self.profileImageData = defaults.data(forKey: Self.profileImageKey(for: id))
+        } else {
+            self.profileImageData = nil
+            defaults.removeObject(forKey: Self.profileImageKey(for: id))
+            defaults.removeObject(forKey: Self.profileImageVersionKey(for: id))
+        }
 
         // Each account gets its own isolated data store so cookies/sessions are separate.
         // This allows multiple Gmail accounts to be logged in simultaneously.
@@ -40,6 +47,12 @@ class GmailAccount: ObservableObject, Identifiable {
     static func profileImageKey(for id: UUID) -> String {
         "profileImage.\(id.uuidString)"
     }
+
+    static func profileImageVersionKey(for id: UUID) -> String {
+        "profileImageVersion.\(id.uuidString)"
+    }
+
+    static let profileImageCacheVersion = 2
 }
 
 class AccountManager: ObservableObject {
@@ -69,6 +82,7 @@ class AccountManager: ObservableObject {
         // Clear the data store for the removed account
         let account = accounts[index]
         UserDefaults.standard.removeObject(forKey: GmailAccount.profileImageKey(for: account.id))
+        UserDefaults.standard.removeObject(forKey: GmailAccount.profileImageVersionKey(for: account.id))
         account.webView.configuration.websiteDataStore.removeData(
             ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
             modifiedSince: .distantPast
@@ -87,6 +101,10 @@ class AccountManager: ObservableObject {
         guard accounts.contains(where: { $0.id == account.id }) else { return }
         account.profileImageData = data
         UserDefaults.standard.set(data, forKey: GmailAccount.profileImageKey(for: account.id))
+        UserDefaults.standard.set(
+            GmailAccount.profileImageCacheVersion,
+            forKey: GmailAccount.profileImageVersionKey(for: account.id)
+        )
     }
 
     // MARK: - Persistence

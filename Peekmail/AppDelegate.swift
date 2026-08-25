@@ -514,8 +514,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard account.profileImageData == nil,
               accountManager.currentWebView === account.webView else { return }
 
-        // Gmail may render the avatar as an image or a CSS background. Find the visible
-        // square inside the active account control, then snapshot exactly what Gmail shows.
+        // Snapshot Gmail's complete account control so Google-provided decorations around
+        // the profile photo are preserved instead of caching only the inner image.
         let expectedEmailLiteral = String(reflecting: account.email ?? "")
         let js = """
         (function() {
@@ -546,6 +546,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             });
 
             function payloadForControl(control) {
+                var controlRect = control.getBoundingClientRect();
+                if (isVisibleTopRight(control) &&
+                    controlRect.width >= 28 && controlRect.width <= 64 &&
+                    controlRect.height >= 28 && controlRect.height <= 64 &&
+                    Math.abs(controlRect.width - controlRect.height) <= 8) {
+                    return {
+                        x: controlRect.x,
+                        y: controlRect.y,
+                        width: controlRect.width,
+                        height: controlRect.height
+                    };
+                }
+
                 var elements = [control].concat(Array.from(control.querySelectorAll('*')));
                 var avatarElements = elements.filter(function(element) {
                     var rect = element.getBoundingClientRect();
@@ -558,8 +571,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 avatarElements.sort(function(a, b) {
                     var aRect = a.getBoundingClientRect();
                     var bRect = b.getBoundingClientRect();
-                    if (aRect.right !== bRect.right) return bRect.right - aRect.right;
-                    return (aRect.width * aRect.height) - (bRect.width * bRect.height);
+                    return (bRect.width * bRect.height) - (aRect.width * aRect.height);
                 });
 
                 var avatar = avatarElements[0];
